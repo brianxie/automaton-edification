@@ -1,3 +1,45 @@
 #+TITLE: Automaton Edification
 
 Machine learning and stuff.
+
+Code is written in Julia.
+
+** Bootstrapping the environment
+
+It is presumed that Julia is already installed on the host system.
+
+Julia has a built-in package manager accessible from the REPL.
+
+This repository uses a local environment -- that is, any installed dependencies are scoped to the local "project", instead of being available globally. The project environment is thus isolated from the "global" Julia environment and any other Julia project on the system.
+
+The package is defined by the ~Package.toml~ and ~Manifest.toml~ files at its root directory which, among other things, declare all the library dependencies. To install all declared dependencies:
+
+#+begin_src
+julia> ]
+(@v<version>) pkg> activate .
+(automatic-edification) pkg> instantiate
+#+end_src
+
+To add additional packages as dependencies:
+
+#+begin_src
+(automatic-edification) pkg> add <package-name>
+#+end_src
+
+Note that this is also done in the local project environment to ensure that packages are locally scoped and that ~Package.toml~ and ~Manifest.toml~ are updated accordingly.
+
+** Working in the REPL
+
+Start the REPL by running:
+
+#+begin_src
+julia --project=@.
+#+end_src
+
+which automatically looks for a ~Project.toml~ file and loads the corresponding environment.
+
+To load a Julia script in the REPL:
+
+#+begin_src
+julia> include("<filename.jl>")
+#+end_src
