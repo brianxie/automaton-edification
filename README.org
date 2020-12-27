@@ -1,0 +1,3 @@
+#+TITLE: Automaton Edification
+
+Machine learning and stuff.
