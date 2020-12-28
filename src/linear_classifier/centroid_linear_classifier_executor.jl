@@ -32,6 +32,13 @@ end
 positive_center, negative_center = write_clusters_to_csv(vector_dimension, positive_size, negative_size)
 positive_data, negative_data = read_clusters_from_csv()
 
+positive_centroid = Cluster.compute_centroid(positive_data)
+negative_centroid = Cluster.compute_centroid(negative_data)
+
 # Train the model.
-# This returns a function that can be applied to a vector of size vector_dimension to classify.
 model = CentroidLinearClassifier.model(positive_data, negative_data)
+
+println("Model trained!")
+println("`positive_data`, `negative_data` contain the full datasets.")
+println("`positive_centroid`, `negative_centroid` are the respective centroids.")
+println("`model` is a function that can be applied to a vector to classify it.")
