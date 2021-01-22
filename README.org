@@ -22,13 +22,13 @@ To install all declared dependencies:
 #+begin_src
 julia> ]
 (@v<version>) pkg> activate .
-(automatic-edification) pkg> instantiate
+(automaton-edification) pkg> instantiate
 #+end_src
 
 To add additional packages as dependencies:
 
 #+begin_src
-(automatic-edification) pkg> add <package-name>
+(automaton-edification) pkg> add <package-name>
 #+end_src
 
 Note that this is also done in the local project environment to ensure that
