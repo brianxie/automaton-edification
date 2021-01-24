@@ -48,7 +48,7 @@ Returns a single vector of size `n` corresponding to the centroid.
 function compute_centroid(
         points::AbstractMatrix{<:Number})::AbstractVector{<:AbstractFloat}
     point_sum = sum(points, dims=1)[:]
-    return point_sum ./ length(points)
+    return point_sum ./ size(points, 1)
 end
 
 end # module
