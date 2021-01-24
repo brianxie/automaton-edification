@@ -1,11 +1,11 @@
-using CSV, DataFrames
+using CSV, DataFrames, Plots
 
 include("../cluster.jl")
 include("centroid_linear_classifier.jl")
 
 SYN_CENTER_RADIUS = 100
 SYN_CENTER_PERTURB_RADIUS = 10.0
-SYN_VECTOR_NDIMS = 4
+SYN_VECTOR_NDIMS = 3
 NUM_POSITIVE_SYN_POINTS = 100
 NUM_NEGATIVE_SYN_POINTS = 100
 
@@ -64,3 +64,18 @@ println("The vector must be of dimension: ", SYN_VECTOR_NDIMS)
 println()
 println("positive_centroid: ", positive_centroid)
 println("negative_centroid: ", negative_centroid)
+
+# arr[:,k] selects everything along the kth column, i.e. a vector containing the
+# kth coordinate of all elements.
+plt = plot([positive_data[:,n] for n in 1:size(positive_data, 2)]...,
+           label = "positive_data",
+           seriestype = :scatter,
+           showaxis = :show,
+           aspect_ratio = :equal)
+plot!(plt, [negative_data[:,n] for n in 1:size(negative_data, 2)]...,
+           label = "negative_data",
+           seriestype = :scatter,
+           showaxis = :show,
+           aspect_ratio = :equal)
+# TODO: plot the decision boundary.
+display(plt)
