@@ -1,4 +1,4 @@
-#+TITLE: Automaton Edification
+#+title: Automaton Edification
 
 Machine learning and stuff.
 
