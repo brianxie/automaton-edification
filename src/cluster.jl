@@ -2,25 +2,53 @@ module Cluster
 
 using LinearAlgebra
 
-# Returns a num_points * size(center) array of vectors
-function create_uniform_cluster(center::Array{Float64, 1},
-                                perturbation::Float64,
-                                num_points::Int64)
-    ones_vec = ones(Float64, num_points, 1)
-    reshaped_center = transpose(reshape(center, size(center, 1), 1))
+"""
+    create_uniform_cluster(center, perturbation, num_points)
 
-    # num_points * 1, 1 * size(center) => num_points copies of center
-    center_vecs = ones_vec * reshaped_center
+Create a uniformly randomly generated cluster of size `num_points`, centered
+around `center`.
 
+Each point in the cluster deviates from `center` by a uniformly random number in
+the range [0, `perturbation`).
+
+Returns a `num_points` * length(`center`) matrix, where each row is a point in
+the cluster.
+"""
+function create_uniform_cluster(center::AbstractVector{<:Number},
+                                perturbation::Number,
+                                num_points::Integer)::AbstractMatrix{<:AbstractFloat}
+    # (num_points, 1)
+    ones_vec = ones(Integer, (num_points, 1))
+    # (1, length(center))
+    center_T = transpose(center)
+
+    # (num_points, length(center)), where each row is a copy of center
+    center_vecs = ones_vec * center_T
+
+    # Generate random values between [0, perturbation) and negate some randomly
+    # in order to avoid floating point precision errors and preserve symmetry of
+    # the distribution.
     random_perturbations =
-        (rand(Float64, num_points, size(center, 1), ) .- 0.5) * 2
+        perturbation * rand(Float64, (num_points, length(center)))
+    random_flips = rand([-1, 1], (num_points, length(center)))
 
-    return center_vecs + random_perturbations
+    return center_vecs + (random_perturbations .* random_flips)
 end
 
-function compute_centroid(points::Array{Float64, 2})::Array{Float64, 1}
+"""
+    compute_centroid(points)
+
+Computes the centroid of a matrix of points.
+
+`points` is an m * n matrix that describes m points (rows) of dimension n
+(columns).
+
+Returns a single vector of size `n` corresponding to the centroid.
+"""
+function compute_centroid(
+        points::AbstractMatrix{<:Number})::AbstractVector{<:AbstractFloat}
     point_sum = sum(points, dims=1)[:]
-    return point_sum ./ size(points, 1)
+    return point_sum ./ length(points)
 end
 
 end # module
