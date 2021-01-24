@@ -20,4 +20,4 @@ function model(cs::Array{Float64, 2}, xs::Array{Float64, 2})::Function
     return decision_function
 end
 
-end
+end # module

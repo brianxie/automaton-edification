@@ -23,4 +23,4 @@ function compute_centroid(points::Array{Float64, 2})::Array{Float64, 1}
     return point_sum ./ size(points, 1)
 end
 
-end
+end # module
