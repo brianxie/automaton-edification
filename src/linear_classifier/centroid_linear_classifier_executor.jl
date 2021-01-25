@@ -86,7 +86,7 @@ if (SYN_VECTOR_NDIMS == 2 || SYN_VECTOR_NDIMS == 3)
         boundary = SYN_CENTER_RADIUS + SYN_CENTER_PERTURB_RADIUS
         xns = [-boundary:1:boundary for n in 1:SYN_VECTOR_NDIMS]
         contour!(xns...,
-                 (xns...) -> model.classify(xns),
+                 (xns...) -> LinearClassifiers.classify([xns...], model),
                  levels=[0])
     end
 end
