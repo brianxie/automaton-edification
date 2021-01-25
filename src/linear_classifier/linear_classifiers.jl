@@ -1,5 +1,7 @@
 module LinearClassifiers
 
+export AbstractLinearClassifier, classify
+
 """
 Supertype of all linear classifiers.
 
@@ -15,7 +17,5 @@ Classifies `point` using the `classify` function of `model`.
 """
 classify(point::AbstractVector{<:Number},
          model::AbstractLinearClassifier) = model.classify(point)
-
-export AbstractLinearClassifier
 
 end # module

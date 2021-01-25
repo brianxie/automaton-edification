@@ -1,5 +1,7 @@
 module Cluster
 
+export create_uniform_cluster_ncube, create_uniform_cluster_nsphere, compute_centroid
+
 using LinearAlgebra, Plots
 
 """

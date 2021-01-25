@@ -1,12 +1,13 @@
-using CSV, DataFrames, Plots
-
 include("../cluster.jl")
 include("linear_classifiers.jl")
 include("centroid_linear_classifiers.jl")
 
-SYN_CENTER_RADIUS = 100
+using CSV, DataFrames, Plots
+using ..Cluster, .LinearClassifiers, .CentroidLinearClassifiers
+
+SYN_CENTER_RADIUS = 20
 SYN_CENTER_PERTURB_RADIUS = 10.0
-SYN_VECTOR_NDIMS = 3
+SYN_VECTOR_NDIMS = 2
 NUM_POSITIVE_SYN_POINTS = 1000
 NUM_NEGATIVE_SYN_POINTS = 1000
 
@@ -66,17 +67,29 @@ println()
 println("positive_centroid: ", positive_centroid)
 println("negative_centroid: ", negative_centroid)
 
-# arr[:,k] selects everything along the kth column, i.e. a vector containing the
-# kth coordinate of all elements.
-plt = plot([positive_data[:,n] for n in 1:size(positive_data, 2)]...,
-           label = "positive_data",
-           seriestype = :scatter,
-           showaxis = :show,
-           aspect_ratio = :equal)
-plot!(plt, [negative_data[:,n] for n in 1:size(negative_data, 2)]...,
-           label = "negative_data",
-           seriestype = :scatter,
-           showaxis = :show,
-           aspect_ratio = :equal)
-# TODO: plot the decision boundary.
+# Please don't try to plot things with weird dimensionality.
+if (SYN_VECTOR_NDIMS == 2 || SYN_VECTOR_NDIMS == 3)
+    # arr[:,k] selects everything along the kth column, i.e. a vector containing the
+    # kth coordinate of all elements.
+    plt = plot([positive_data[:,n] for n in 1:size(positive_data, 2)]...,
+            label = "positive_data",
+            seriestype = :scatter,
+            showaxis = :show,
+            aspect_ratio = :equal)
+    plot!(plt, [negative_data[:,n] for n in 1:size(negative_data, 2)]...,
+            label = "negative_data",
+            seriestype = :scatter,
+            showaxis = :show,
+            aspect_ratio = :equal)
+
+    # 3D plotting is kind of weird. Only try this for 2D.
+    if (SYN_VECTOR_NDIMS == 2)
+        boundary = SYN_CENTER_RADIUS + SYN_CENTER_PERTURB_RADIUS
+        xns = [-boundary:1:boundary for n in 1:SYN_VECTOR_NDIMS]
+        contour!(xns...,
+                 (xns...) -> model.classify(xns),
+                 levels=[0])
+    end
+end
+
 display(plt)

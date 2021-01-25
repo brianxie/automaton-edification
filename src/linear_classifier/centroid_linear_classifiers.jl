@@ -1,15 +1,21 @@
 module CentroidLinearClassifiers
 
+export CentroidLinearClassifier, train_model
+
 include("../cluster.jl")
 include("linear_classifiers.jl")
 
 using LinearAlgebra
-using .LinearClassifiers
+using .LinearClassifiers, .Cluster
 
 struct CentroidLinearClassifier <: AbstractLinearClassifier
     classify::Function
-    # TODO: decision boundary
-    # f(x) = w dot x + alpha, where f(x) = 0
+    # `coeffs` and `offset` are parameters for the linear decision boundary, for
+    # a function of the form:
+    # f(x) = (coeffs \dot x) + offset
+    # where the decision boundary is defined by f(x) = 0
+    coeffs::AbstractVector{<:Number}
+    offset::Number
 end
 
 """
@@ -31,12 +37,14 @@ function train_model(positive_data::AbstractMatrix{<:Number},
     normal_vector = positive_data_centroid .- negative_data_centroid
     midpoint = (positive_data_centroid .+ negative_data_centroid) ./ 2
 
+    offset = -1 * dot(normal_vector, midpoint)
+
     decision_function =
         function (x)
-            return dot(normal_vector, x) - dot(normal_vector, midpoint)
+            return dot(normal_vector, x) + offset
         end
 
-    return CentroidLinearClassifier(decision_function)
+    return CentroidLinearClassifier(decision_function, normal_vector, offset)
 end
 
 end # module
