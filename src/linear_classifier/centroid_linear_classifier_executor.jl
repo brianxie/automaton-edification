@@ -1,13 +1,14 @@
 using CSV, DataFrames, Plots
 
 include("../cluster.jl")
-include("centroid_linear_classifier.jl")
+include("linear_classifiers.jl")
+include("centroid_linear_classifiers.jl")
 
 SYN_CENTER_RADIUS = 100
 SYN_CENTER_PERTURB_RADIUS = 10.0
 SYN_VECTOR_NDIMS = 3
-NUM_POSITIVE_SYN_POINTS = 100
-NUM_NEGATIVE_SYN_POINTS = 100
+NUM_POSITIVE_SYN_POINTS = 1000
+NUM_NEGATIVE_SYN_POINTS = 1000
 
 function write_clusters_to_csv(ndims::Integer,
                                num_positive_points::Integer,
@@ -19,13 +20,13 @@ function write_clusters_to_csv(ndims::Integer,
 
     # Generate clusters of points uniformly distributed around each center.
     positive_cluster =
-        Cluster.create_uniform_cluster(positive_center,
-                                       SYN_CENTER_PERTURB_RADIUS,
-                                       num_positive_points)
+        Cluster.create_uniform_cluster_nsphere(positive_center,
+                                               SYN_CENTER_PERTURB_RADIUS,
+                                               num_positive_points)
     negative_cluster =
-        Cluster.create_uniform_cluster(negative_center,
-                                       SYN_CENTER_PERTURB_RADIUS,
-                                       num_negative_points)
+        Cluster.create_uniform_cluster_nsphere(negative_center,
+                                               SYN_CENTER_PERTURB_RADIUS,
+                                               num_negative_points)
 
     CSV.write("positive_data.csv", DataFrame(positive_cluster),
               writeheader=false)
@@ -53,13 +54,13 @@ positive_centroid = Cluster.compute_centroid(positive_data)
 negative_centroid = Cluster.compute_centroid(negative_data)
 
 # Train the model.
-classify = CentroidLinearClassifier.model(positive_data, negative_data)
+model = CentroidLinearClassifiers.train_model(positive_data, negative_data)
 
 println("Classifier trained!")
 println("`positive_center`, `negative_center` are the original unperturbed centers.")
 println("`positive_centroid`, `negative_centroid` are the respective perturbed centroids.")
 println("`positive_data`, `negative_data` contain the full datasets.")
-println("`classify` is a function that can be applied to a vector to classify it.")
+println("`model` has a function `classify` that can be applied to a vector to classify it.")
 println("The vector must be of dimension: ", SYN_VECTOR_NDIMS)
 println()
 println("positive_centroid: ", positive_centroid)
