@@ -1,4 +1,4 @@
-module Cluster
+module Clusters
 
 export create_uniform_cluster_ncube, create_uniform_cluster_nsphere, compute_centroid
 

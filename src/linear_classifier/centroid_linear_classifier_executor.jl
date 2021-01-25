@@ -1,9 +1,8 @@
 include("../cluster.jl")
 include("linear_classifiers.jl")
-include("centroid_linear_classifiers.jl")
+include("centroid_linear_classifier_impl.jl")
 
 using CSV, DataFrames, Plots
-using ..Cluster, .LinearClassifiers, .CentroidLinearClassifiers
 
 SYN_CENTER_RADIUS = 20
 SYN_CENTER_PERTURB_RADIUS = 10.0
@@ -21,11 +20,11 @@ function write_clusters_to_csv(ndims::Integer,
 
     # Generate clusters of points uniformly distributed around each center.
     positive_cluster =
-        Cluster.create_uniform_cluster_nsphere(positive_center,
+        Clusters.create_uniform_cluster_nsphere(positive_center,
                                                SYN_CENTER_PERTURB_RADIUS,
                                                num_positive_points)
     negative_cluster =
-        Cluster.create_uniform_cluster_nsphere(negative_center,
+        Clusters.create_uniform_cluster_nsphere(negative_center,
                                                SYN_CENTER_PERTURB_RADIUS,
                                                num_negative_points)
 
@@ -51,11 +50,11 @@ positive_center, negative_center =
                           NUM_POSITIVE_SYN_POINTS, NUM_NEGATIVE_SYN_POINTS)
 positive_data, negative_data = read_clusters_from_csv()
 
-positive_centroid = Cluster.compute_centroid(positive_data)
-negative_centroid = Cluster.compute_centroid(negative_data)
+positive_centroid = Clusters.compute_centroid(positive_data)
+negative_centroid = Clusters.compute_centroid(negative_data)
 
 # Train the model.
-model = CentroidLinearClassifiers.train_model(positive_data, negative_data)
+model = CentroidLinearClassifierImpl.train_model(positive_data, negative_data)
 
 println("Classifier trained!")
 println("`positive_center`, `negative_center` are the original unperturbed centers.")
