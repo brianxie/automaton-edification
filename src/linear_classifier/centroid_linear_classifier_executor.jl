@@ -1,4 +1,4 @@
-include("../cluster.jl")
+include("../clusters.jl")
 include("linear_classifiers.jl")
 include("centroid_linear_classifier_impl.jl")
 
