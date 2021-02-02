@@ -335,10 +335,10 @@ function train!(nn::NeuralNetwork,
         end
 
         # Compute loss.
-        loss = compute_loss(input, [label], nn.loss_fn)
+        loss = compute_loss(input, label, nn.loss_fn)
 
         # Backprop.
-        loss_grad = compute_loss_gradient(input, [label], nn.loss_fn)
+        loss_grad = compute_loss_gradient(input, label, nn.loss_fn)
 
         for l in reverse(1:num_layers)
             backward_passes[l] =
