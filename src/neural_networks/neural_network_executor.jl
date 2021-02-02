@@ -18,8 +18,9 @@ for (index, input) in enumerate(shuffle(repeat([[0,0],[0,1],[1,0],[1,1]], EPOCHS
     label = float(input[1] ⊻ input[2])
 
     # Run inference
-    layer_1_forward = NeuralNetworks.predict(nn.layers[1], input)
-    layer_2_forward = NeuralNetworks.predict(nn.layers[2], layer_1_forward.activations)
+    layer_1_forward = NeuralNetworks.forward_pass(nn.layers[1], input)
+    layer_2_forward =
+        NeuralNetworks.forward_pass(nn.layers[2], layer_1_forward.activations)
 
     # Compute loss
     loss = NeuralNetworks.compute_loss(layer_2_forward.activations,

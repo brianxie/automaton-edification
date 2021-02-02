@@ -1,29 +1,12 @@
 module NeuralNetworks
 
-export Neuron, Layer, NeuralNetwork, create_neural_network
+# TODO: Add exports
 
 using Zygote
-#using LinearAlgebra, Zygote
 
-struct LayerForwardPass
-    # Inputs from the previous layer. Includes bias.
-    inputs::AbstractVector{<:Number}
-    # Sums of each neuron before activation; same dimensionality as layer
-    # output.
-    sums::AbstractVector{<:Number}
-    # Activation of each neuron; same dimensionality as layer output.
-    activations::AbstractVector{<:Number}
-end
-
-struct LayerBackwardPass
-    # WRT pre-activation sums.
-    dL_dS::AbstractVector{<:Number}
-    # WRT each weight.
-    dL_dW::AbstractMatrix{<:Number}
-    # WRT inputs. This gets used by the previous layer in backprop.
-    dL_dI::AbstractVector{<:Number}
-end
-
+"""
+A single layer of a neural network.
+"""
 struct Layer
     # Each row corresponds to a neuron in the previous layer, including bias
     # term.
@@ -35,6 +18,34 @@ struct Layer
     weights::AbstractMatrix{<:Number}
     # Each activation function corresponds to a single neuron in this layer.
     activation_fns::AbstractVector{<:Function}
+end
+
+"""
+A data structure containing the values computed by a single layer during the
+forward-pass.
+"""
+struct LayerForwardPass
+    # Inputs from the previous layer. Includes bias.
+    inputs::AbstractVector{<:Number}
+    # Sums of each neuron before activation; same dimensionality as layer
+    # output.
+    sums::AbstractVector{<:Number}
+    # Activation of each neuron; same dimensionality as layer output.
+    activations::AbstractVector{<:Number}
+end
+
+"""
+A data structure containing the partial derivatives of the loss with respect to
+a given layer during the backward-pass.
+"""
+struct LayerBackwardPass
+    # Partial derivatives w.r.t pre-activation sums.
+    dL_dS::AbstractVector{<:Number}
+    # Partial derivatives w.r.t each weight.
+    dL_dW::AbstractMatrix{<:Number}
+    # Partial derivatives w.r.t inputs. This gets used by the previous layer in
+    # backprop (these inputs are exactly the outputs of the previous layer).
+    dL_dI::AbstractVector{<:Number}
 end
 
 struct NeuralNetwork
@@ -132,8 +143,11 @@ Creates a neural network by building layers with the specified dimensionality,
 corresponds to the number of neurons in the `n`-th layer of the network.
 - `activation_fn`: the activation function used for all nodes in the network.
 - `loss_fn`: single loss function at the end of the network.
-- `input_dims`: the dimensionality of inputs to the network.
-- `output_dims`: the dimensionality of outputs of the network.
+- `network_input_dims`: the dimensionality of inputs to the network.
+- `network_output_dims`: the dimensionality of outputs of the network.
+
+TODO: This function is convenient, but it's probably better to construct and
+compose layers individually.
 """
 function create_nn(layer_dims::AbstractVector{<:Integer},
                    activation_fn::Function,
@@ -156,12 +170,12 @@ function create_nn(layer_dims::AbstractVector{<:Integer},
 end
 
 """
-    predict(layer, inputs)
+    forward_pass(layer, inputs)
 
 Computes the activations of `layer` on `inputs`, returning the cached results.
 """
-function predict(layer::Layer,
-                 inputs::AbstractVector{<:Number})::LayerForwardPass
+function forward_pass(layer::Layer,
+                      inputs::AbstractVector{<:Number})::LayerForwardPass
     @assert ndims(inputs) == 1
     @assert length(inputs) == in_ndims_sans_bias(layer)
 
@@ -187,7 +201,7 @@ Computes the end-to-end application of `nn` on `inputs`.
 """
 function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
     for layer in nn.layers
-        inputs = predict(layer, inputs).activations
+        inputs = forward_pass(layer, inputs).activations
     end
     return inputs
 end
