@@ -4,6 +4,10 @@ module NeuralNetworks
 
 using Zygote
 
+##
+## Data types
+##
+
 """
 A single layer of a neural network.
 """
@@ -16,9 +20,20 @@ struct Layer
     # not show up in dimensionality of the same layer. Thus, the dimensionality
     # of this matrix is (num_prev_outputs + 1) * (num_curr_outputs).
     weights::AbstractMatrix{<:Number}
-    # Each scalar-valued activation function corresponds to a single neuron in
-    # this layer.
+    # Each scalar-valued (f: R -> R) activation function corresponds to a single
+    # neuron in this layer.
     activation_fns::AbstractVector{<:Function}
+end
+
+"""
+A complete neural network.
+"""
+struct NeuralNetwork
+    # Layers of the network, applied in order.
+    layers::AbstractVector{<:Layer}
+    # Single loss function f: (R^n * R^n) -> R applied to the network's final
+    # layer output.
+    loss_fn::Function
 end
 
 """
@@ -40,18 +55,20 @@ A data structure containing the partial derivatives of the loss with respect to
 a given layer during the backward-pass.
 """
 struct LayerBackwardPass
-    # Partial derivatives w.r.t pre-activation sums.
+    # Partial derivatives w.r.t. pre-activation sums.
     dL_dS::AbstractVector{<:Number}
-    # Partial derivatives w.r.t each weight.
+    # Partial derivatives w.r.t. each weight.
     dL_dW::AbstractMatrix{<:Number}
-    # Partial derivatives w.r.t inputs. This gets used by the previous layer in
+    # Partial derivatives w.r.t. inputs. This gets used by the previous layer in
     # backprop (these inputs are exactly the outputs of the previous layer).
     dL_dI::AbstractVector{<:Number}
 end
 
-struct NeuralNetwork
-    layers::AbstractVector{<:Layer}
-    loss_fn::Function
+function Base.show(io::IO, layer::Layer)
+    print("  $(length(layer.activation_fns)) neurons\n")
+    print("  Weights " *
+          "[$(size(layer.weights, 1))x$(size(layer.weights, 2))]: " *
+          "$(layer.weights)\n")
 end
 
 function Base.show(io::IO, nn::NeuralNetwork)
@@ -60,9 +77,8 @@ function Base.show(io::IO, nn::NeuralNetwork)
     print("Input dimensionality: $(in_ndims_sans_bias(nn.layers[1]))\n")
     print("Output dimensionality: $(out_ndims(nn.layers[num_layers]))\n")
     for l in 1:num_layers
-        print("Layer $(l): $(length(nn.layers[l].activation_fns)) neurons.\n")
-        weights = nn.layers[l].weights
-        print("  Weights [$(size(weights, 1))x$(size(weights, 2))]: $(weights)\n")
+        print("Layer $(l):\n")
+        print(nn.layers[l])
     end
 end
 
@@ -85,7 +101,24 @@ function Base.show(io::IO, layer_backward_pass::LayerBackwardPass)
 end
 
 """
+Data structure containing loss stats for each epoch of training.
+"""
+struct TrainingStats
+    losses::AbstractVector
+end
+
+##
+## Constructors
+##
+
+"""
     create_layer(in_ndims_sans_bias, out_ndims, activation_fns)
+
+Creates a single layer of a neural network with the given dimensions and
+activation functions, and randomly assigned weights.
+
+In this package, a "layer" is composed of (1) weights, which are applied to the
+previous layer, and (2) activation functions, which are applied after weights.
 """
 function create_layer(in_ndims_sans_bias::Integer,
                       out_ndims::Integer,
@@ -96,15 +129,16 @@ function create_layer(in_ndims_sans_bias::Integer,
 end
 
 """
-    validate_layer(layer)
+    validate_layer(layer, num_inputs_sans_bias, num_outputs)
 
-Asserts that the layer parameters have consistent dimensionality.
+Asserts that the layer parameters have the desired dimensionality, not including
+the bias.
 """
 function validate_layer(layer::Layer,
-                        num_inputs::Integer,
+                        num_inputs_sans_bias::Integer,
                         num_outputs::Integer)
-    @assert size(layer.weights) == (num_inputs + 1, num_outputs)
-    @assert length(layer.activation_fns) == num_outputs
+    @assert in_ndims_sans_bias(layer) == num_inputs_sans_bias
+    @assert out_ndims(layer) == num_outputs
 end
 
 """
@@ -118,24 +152,26 @@ function compose_layers(input_ndims::Integer,
                         layers...)::NeuralNetwork
     num_layers = length(layers)
     nn_layers = Vector{Layer}(undef, num_layers)
+
     # Verify layers are dimensionally compatible.
     for l in 1:num_layers
-        expected_in_ndims = (l == 1 ? input_ndims : out_ndims(layers[l-1]))
-        actual_in_ndims = in_ndims_sans_bias(layers[l])
-        @assert actual_in_ndims ==
-            expected_in_ndims "Layer $l: " *
-            "in_ndims_sans_bias=$actual_in_ndims, " *
-            "expected=$expected_in_ndims"
-        if (l == num_layers)
-            @assert out_ndims(layers[l]) == output_ndims
-        end
+        expected_in_ndims_sans_bias = (l == 1 ?
+                                       input_ndims :
+                                       out_ndims(layers[l-1]))
+        expected_out_ndims = (l == num_layers ?
+                              output_ndims :
+                              in_ndims_sans_bias(layers[l+1]))
+        validate_layer(layers[l],
+                       expected_in_ndims_sans_bias,
+                       expected_out_ndims)
     end
 
     return NeuralNetwork([layers...], loss_fn)
 end
 
 """
-    create_nn(layer_dims, activation_fn, input_dims, output_dims)
+    create_nn(layer_dims, activation_fn, loss_fn,
+              network_input_dims, network_output_dims)
 
 Creates a neural network by building layers with the specified dimensionality,
 `activation_fn`, and `loss_fn`.
@@ -143,7 +179,8 @@ Creates a neural network by building layers with the specified dimensionality,
 - `layer_dims::AbstractVector`: a vector of integers, where the `n`-th value
 corresponds to the number of neurons in the `n`-th layer of the network.
 - `activation_fn`: the activation function used for all nodes in the network.
-- `loss_fn`: single loss function at the end of the network.
+- `loss_fn`: a single loss function applied at the end of a network, producing a
+  scalar loss value.
 - `network_input_dims`: the dimensionality of inputs to the network.
 - `network_output_dims`: the dimensionality of outputs of the network.
 
@@ -170,13 +207,17 @@ function create_nn(layer_dims::AbstractVector{<:Integer},
                           loss_fn, layers...)
 end
 
+##
+## Training and inference
+##
+
 """
-    forward_pass(layer, inputs)
+    run_forward_pass(layer, inputs)
 
 Computes the activations of `layer` on `inputs`, returning the cached results.
 """
-function forward_pass(layer::Layer,
-                      inputs::AbstractVector{<:Number})::LayerForwardPass
+function run_forward_pass(layer::Layer,
+                          inputs::AbstractVector{<:Number})::LayerForwardPass
     @assert ndims(inputs) == 1
     @assert length(inputs) == in_ndims_sans_bias(layer)
 
@@ -196,74 +237,36 @@ function forward_pass(layer::Layer,
 end
 
 """
-    predict(nn, inputs)
+    compute_loss_gradient(net_output, label, loss_fn)
 
-Computes the end-to-end application of `nn` on `inputs`.
+Computes the gradient of `loss_fn` parameterized by `label`, with respect to
+`net_output`, evaluated at `net_output`.
+
+- `loss_fn`: a function f: (R^n * R^n) -> R
 """
-function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
-    for layer in nn.layers
-        inputs = forward_pass(layer, inputs).activations
-    end
-    return inputs
-end
-
-"""
-    compute_multi_objective_loss_gradient(net_output, label, loss_fn)
-
-Computes the gradient of `loss_fn` with respect to `net_output`, evaluated at
-`net_output`.
-
-TODO: Make this work for multiclass loss functions that compute scalar loss from
-vector outputs, e.g. softmax.
-"""
-function compute_multi_objective_loss_gradient(net_output::AbstractVector{<:Number},
-                                               label::AbstractVector{<:Number},
-                                               loss_fn::Function)::AbstractVector{<:Number}
+function compute_loss_gradient(net_output::AbstractVector{<:Number},
+                               label::AbstractVector{<:Number},
+                               loss_fn::Function)::AbstractVector{<:Number}
     @assert length(net_output) == length(label)
     
-    # Vector of partially-applied loss functions, where each entry lossmap[i]
-    # contains f(x) = loss_fn(label[i], x)
-    lossmap = map(y -> (x -> loss_fn(y, x)), label)
-
-    # Take the gradient of each loss function with respect to each output,
-    # evaluated at the outputs.
-    # dL_dO is just the derivative of the loss function.
-    dL_dO = map(gradient, lossmap, net_output) |>
-        vec -> map(t -> t[1], vec)
+    partial_loss(x) = loss_fn(label, x)
+    dL_dO = gradient(partial_loss, net_output)[1]
 
     return dL_dO
 end
 
 """
-    compute_multi_objective_loss(net_output, label, loss_fn)
+    run_backward_pass(layer, forward_pass, dL_dO)
 
-Computes the loss between `label` and `net_output` using `loss_fn`.
-
-TODO: Make this work for multiclass loss functions that compute scalar loss from
-vector outputs, e.g. softmax.
-"""
-function compute_multi_objective_loss(net_output::AbstractVector{<:Number},
-                                      label::AbstractVector{<:Number},
-                                      loss_fn::Function)::AbstractVector{<:Number}
-    # Vector of partially-applied loss functions, where each entry lossmap[i]
-    # contains f(x) = loss_fn(label[i], x)
-    lossmap = map(y -> (x -> loss_fn(y, x)), label)
-
-    # Returns a vector loss.
-    return map.(lossmap, net_output)
-end
-
-"""
-    compute_weight_gradients(layer, forward_pass, dL_dO)
-
-Does backprop.
+Does backprop to compute the loss gradients with respect to the components of a
+single layer, using the values from the `forward_pass`.
 
 Returns a LayerBackwardPass containing the gradients, without mutating the
 original layer.
 """
-function compute_weight_gradients(layer::Layer,
-                                  forward_pass::LayerForwardPass,
-                                  dL_dO::AbstractVector{<:Number})::LayerBackwardPass
+function run_backward_pass(layer::Layer,
+                           forward_pass::LayerForwardPass,
+                           dL_dO::AbstractVector{<:Number})::LayerBackwardPass
     @assert length(dL_dO) == out_ndims(forward_pass)
 
     # dL_dS|S = dL_dO|O * dO_dS|S
@@ -289,7 +292,8 @@ end
 """
     update_layer_weights!(layer, backward_pass, learning_rate)
 
-Updates weights according to backprop gradient calculation.
+Updates weights according to backprop gradient calculation by applying values
+from a previously computed `backward_pass`.
 """
 function update_layer_weights!(layer::Layer,
                                backward_pass::LayerBackwardPass,
@@ -300,14 +304,7 @@ function update_layer_weights!(layer::Layer,
 end
 
 """
-Data structure containing loss stats for each epoch of training.
-"""
-struct TrainingStats
-    losses::AbstractVector
-end
-
-"""
-    train(nn, inputs, labels, learning_rate)
+    train(nn, data, labels, learning_rate)
 
 TODO: implement batch and minibatch.
 """
@@ -331,25 +328,23 @@ function train!(nn::NeuralNetwork,
 
         # Run forward-pass.
         for l in 1:num_layers
-            forward_passes[l] = forward_pass(nn.layers[l], input)
+            forward_passes[l] = run_forward_pass(nn.layers[l], input)
             input = forward_passes[l].activations
         end
 
         # Compute loss.
-        loss = compute_multi_objective_loss(input, label, nn.loss_fn)
+        loss = nn.loss_fn(input, label)
 
         # Backprop.
-        loss_grad = compute_multi_objective_loss_gradient(input,
-                                                          label,
-                                                          nn.loss_fn)
+        loss_grad = compute_loss_gradient(input, label, nn.loss_fn)
 
         for l in reverse(1:num_layers)
             backward_passes[l] =
-                compute_weight_gradients(nn.layers[l],
-                                         forward_passes[l],
-                                         l == num_layers ?
-                                         loss_grad :
-                                         backward_passes[l+1].dL_dI[1:end-1])
+                run_backward_pass(nn.layers[l],
+                                  forward_passes[l],
+                                  l == num_layers ?
+                                  loss_grad :
+                                  backward_passes[l+1].dL_dI[1:end-1])
         end
 
         # Update weights. The weight updates have already been computed, so this
@@ -370,6 +365,22 @@ function train!(nn::NeuralNetwork,
 end
 
 """
+    predict(nn, inputs)
+
+Computes the end-to-end application of `nn` on `inputs`.
+"""
+function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
+    for layer in nn.layers
+        inputs = run_forward_pass(layer, inputs).activations
+    end
+    return inputs
+end
+
+##
+## Miscellaneous
+##
+
+"""
     in_ndims_sans_bias(layer)
 
 Returns the number of inputs to `layer`, not including the bias term (in other
@@ -386,11 +397,12 @@ Returns the number of inputs to `layer`, not including the bias term (in other
 words, only the inputs that come from the previous layer).
 """
 function in_ndims_sans_bias(layer::LayerBackwardPass)
-    return size(layer.dL_dW, 1) - 1
+    @assert length(dL_dI) == size(layer.dL_dW, 1) - 1
+    return length(dL_dI)
 end
 
 """
-    in_ndims_sans_bias(layer)
+    in_ndims_with_bias(layer)
 
 Returns the number of inputs to `layer`, including the bias term.
 """
@@ -404,6 +416,7 @@ end
 Returns the number of outputs from `layer`.
 """
 function out_ndims(layer::Layer)
+    @assert size(layer.weights, 2) == length(layer.activation_fns)
     return size(layer.weights, 2)
 end
 
@@ -413,7 +426,79 @@ end
 Returns the number of outputs from `layer`.
 """
 function out_ndims(layer::LayerForwardPass)
+    @assert length(layer.sums) == length(layer.activations)
     return length(layer.activations)
+end
+
+"""
+DEPRECATED
+
+    compute_loss(net_output, label, loss_fn)
+
+Computes the loss between `label` and `net_output` using `loss_fn`. Despite the
+loss being a scalar, this transforms it into a singleton array for consistency
+with the multi-objective function.
+
+- `loss_fn`: a function f: (R^n * R^n) -> R
+"""
+function compute_loss(net_output::AbstractVector{<:Number},
+                      label::AbstractVector{<:Number},
+                      loss_fn::Function)::AbstractVector{<:Number}
+    return [loss_fn(label, net_output)]
+end
+
+"""
+DEPRECATED
+
+    compute_multi_objective_loss_gradient(net_output, label, loss_fn)
+
+Computes the gradient of `loss_fn` parameterized by `label`, with respect to
+`net_output`, evaluated at `net_output`.
+
+You probably don't want to do this (this package does not provide a good
+solution to multi-objective optimization problems).
+
+- `loss_fn`: a function f: (R^n * R^n) -> R^n
+"""
+function compute_multi_objective_loss_gradient(net_output::AbstractVector{<:Number},
+                                               label::AbstractVector{<:Number},
+                                               loss_fn::Function)::AbstractVector{<:Number}
+    @assert length(net_output) == length(label)
+ 
+    # Vector of partially-applied loss functions, where each entry lossmap[i]
+    # contains f(x) = loss_fn(label[i], x)
+    lossmap = map(y -> (x -> loss_fn(y, x)), label)
+
+    # Take the gradient of each loss function with respect to each output,
+    # evaluated at the outputs.
+    # dL_dO is just the derivative of the loss function.
+    dL_dO = map(gradient, lossmap, net_output) |>
+        vec -> map(t -> t[1], vec)
+
+    return dL_dO
+end
+
+"""
+DEPRECATED
+
+    compute_multi_objective_loss(net_output, label, loss_fn)
+
+Computes the loss between `label` and `net_output` using `loss_fn`.
+
+You probably don't want to do this (this package does not provide a good
+solution to multi-objective optimization problems).
+
+- `loss_fn`: a function f: (R^n * R^n) -> R^n
+"""
+function compute_multi_objective_loss(net_output::AbstractVector{<:Number},
+                                      label::AbstractVector{<:Number},
+                                      loss_fn::Function)::AbstractVector{<:Number}
+    # Vector of partially-applied loss functions, where each entry lossmap[i]
+    # contains f(x) = loss_fn(label[i], x)
+    lossmap = map(y -> (x -> loss_fn(y, x)), label)
+
+    # Returns a vector loss.
+    return map.(lossmap, net_output)
 end
 
 end # module
