@@ -5,11 +5,11 @@ using LinearAlgebra, Random, Plots
 # Parameters
 learning_rate = 0.1
 epochs = 25000
-sq_error(x,y) = (x-y) .* (x-y)
+vec_sq_error(x,y) = (x-y) .* (x-y) ./ length(x)
 e_approx = float(MathConstants.e)
 sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
 
-nn = NeuralNetworks.create_nn([2,1], sigmoid, sq_error, 2, 1)
+nn = NeuralNetworks.create_nn([2,1], sigmoid, vec_sq_error, 2, 1)
 
 # Learn XOR
 # [a, b] -> [a XOR b]

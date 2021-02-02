@@ -16,7 +16,8 @@ struct Layer
     # not show up in dimensionality of the same layer. Thus, the dimensionality
     # of this matrix is (num_prev_outputs + 1) * (num_curr_outputs).
     weights::AbstractMatrix{<:Number}
-    # Each activation function corresponds to a single neuron in this layer.
+    # Each scalar-valued activation function corresponds to a single neuron in
+    # this layer.
     activation_fns::AbstractVector{<:Function}
 end
 
@@ -207,7 +208,7 @@ function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
 end
 
 """
-    compute_loss_gradient(net_output, label, loss_fn)
+    compute_multi_objective_loss_gradient(net_output, label, loss_fn)
 
 Computes the gradient of `loss_fn` with respect to `net_output`, evaluated at
 `net_output`.
@@ -215,9 +216,9 @@ Computes the gradient of `loss_fn` with respect to `net_output`, evaluated at
 TODO: Make this work for multiclass loss functions that compute scalar loss from
 vector outputs, e.g. softmax.
 """
-function compute_loss_gradient(net_output::AbstractVector{<:Number},
-                               label::AbstractVector{<:Number},
-                               loss_fn::Function)::AbstractVector{<:Number}
+function compute_multi_objective_loss_gradient(net_output::AbstractVector{<:Number},
+                                               label::AbstractVector{<:Number},
+                                               loss_fn::Function)::AbstractVector{<:Number}
     @assert length(net_output) == length(label)
     
     # Vector of partially-applied loss functions, where each entry lossmap[i]
@@ -234,16 +235,16 @@ function compute_loss_gradient(net_output::AbstractVector{<:Number},
 end
 
 """
-    compute_loss(net_output, label, loss_fn)
+    compute_multi_objective_loss(net_output, label, loss_fn)
 
 Computes the loss between `label` and `net_output` using `loss_fn`.
 
 TODO: Make this work for multiclass loss functions that compute scalar loss from
 vector outputs, e.g. softmax.
 """
-function compute_loss(net_output::AbstractVector{<:Number},
-                      label::AbstractVector{<:Number},
-                      loss_fn::Function)::AbstractVector{<:Number}
+function compute_multi_objective_loss(net_output::AbstractVector{<:Number},
+                                      label::AbstractVector{<:Number},
+                                      loss_fn::Function)::AbstractVector{<:Number}
     # Vector of partially-applied loss functions, where each entry lossmap[i]
     # contains f(x) = loss_fn(label[i], x)
     lossmap = map(y -> (x -> loss_fn(y, x)), label)
@@ -335,10 +336,12 @@ function train!(nn::NeuralNetwork,
         end
 
         # Compute loss.
-        loss = compute_loss(input, label, nn.loss_fn)
+        loss = compute_multi_objective_loss(input, label, nn.loss_fn)
 
         # Backprop.
-        loss_grad = compute_loss_gradient(input, label, nn.loss_fn)
+        loss_grad = compute_multi_objective_loss_gradient(input,
+                                                          label,
+                                                          nn.loss_fn)
 
         for l in reverse(1:num_layers)
             backward_passes[l] =
