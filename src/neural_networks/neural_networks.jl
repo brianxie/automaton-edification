@@ -211,6 +211,9 @@ end
 
 Computes the gradient of `loss_fn` with respect to `net_output`, evaluated at
 `net_output`.
+
+TODO: Make this work for multiclass loss functions that compute scalar loss from
+vector outputs, e.g. softmax.
 """
 function compute_loss_gradient(net_output::AbstractVector{<:Number},
                                label::AbstractVector{<:Number},
@@ -234,6 +237,9 @@ end
     compute_loss(net_output, label, loss_fn)
 
 Computes the loss between `label` and `net_output` using `loss_fn`.
+
+TODO: Make this work for multiclass loss functions that compute scalar loss from
+vector outputs, e.g. softmax.
 """
 function compute_loss(net_output::AbstractVector{<:Number},
                       label::AbstractVector{<:Number},
@@ -242,6 +248,7 @@ function compute_loss(net_output::AbstractVector{<:Number},
     # contains f(x) = loss_fn(label[i], x)
     lossmap = map(y -> (x -> loss_fn(y, x)), label)
 
+    # Returns a vector loss.
     return map.(lossmap, net_output)
 end
 
@@ -279,17 +286,84 @@ function compute_weight_gradients(layer::Layer,
 end
 
 """
-    update_layer_weights(layer, backward_pass, learning_rate)
+    update_layer_weights!(layer, backward_pass, learning_rate)
 
 Updates weights according to backprop gradient calculation.
 """
-function update_layer_weights(layer::Layer,
-                              backward_pass::LayerBackwardPass,
-                              learning_rate::Number)
+function update_layer_weights!(layer::Layer,
+                               backward_pass::LayerBackwardPass,
+                               learning_rate::Number)
     @assert size(layer.weights) == size(backward_pass.dL_dW)
 
-    weights = layer.weights .- (learning_rate .* backward_pass.dL_dW)
-    return Layer(weights, layer.activation_fns)
+    layer.weights .-= (learning_rate .* backward_pass.dL_dW)
+end
+
+"""
+Data structure containing loss stats for each epoch of training.
+"""
+struct TrainingStats
+    losses::AbstractVector
+end
+
+"""
+    train(nn, inputs, labels, learning_rate)
+
+TODO: implement batch and minibatch.
+"""
+function train!(nn::NeuralNetwork,
+                data::AbstractVector,
+                labels::AbstractVector,
+                learning_rate::Number)::TrainingStats
+    @assert length(data) == length(labels)
+
+    num_layers = length(nn.layers)
+
+    # Record the results of forward and backward passes for each layer.
+    # These are only used for backprop and are overwritten on every epoch.
+    forward_passes = Vector{LayerForwardPass}(undef, num_layers)
+    backward_passes = Vector{LayerBackwardPass}(undef, num_layers)
+
+    losses = Vector(undef, length(data))
+
+    for (index, input) in enumerate(data)
+        label = labels[index]
+
+        # Run forward-pass.
+        for l in 1:num_layers
+            forward_passes[l] = forward_pass(nn.layers[l], input)
+            input = forward_passes[l].activations
+        end
+
+        # Compute loss.
+        loss = compute_loss(input, [label], nn.loss_fn)
+
+        # Backprop.
+        loss_grad = compute_loss_gradient(input, [label], nn.loss_fn)
+
+        for l in reverse(1:num_layers)
+            backward_passes[l] =
+                compute_weight_gradients(nn.layers[l],
+                                         forward_passes[l],
+                                         l == num_layers ?
+                                         loss_grad :
+                                         backward_passes[l+1].dL_dI[1:end-1])
+        end
+
+        # Update weights. The weight updates have already been computed, so this
+        # can be done in any order.
+        for l in 1:num_layers
+            update_layer_weights!(nn.layers[l],
+                                  backward_passes[l],
+                                  learning_rate)
+        end
+
+        losses[index] = loss
+        if (index % 1000 == 0)
+            print("Iteration $index / $(length(data)) : loss=$(loss)\n")
+        end
+    end
+
+    return TrainingStats(losses)
 end
 
 """
