@@ -158,7 +158,7 @@ end
 """
     predict(layer, inputs)
 
-Computes the activations of `layer` on `inputsj`, returning the cached results.
+Computes the activations of `layer` on `inputs`, returning the cached results.
 """
 function predict(layer::Layer,
                  inputs::AbstractVector{<:Number})::LayerForwardPass
@@ -181,9 +181,22 @@ function predict(layer::Layer,
 end
 
 """
+    predict(nn, inputs)
+
+Computes the end-to-end application of `nn` on `inputs`.
+"""
+function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
+    for layer in nn.layers
+        inputs = predict(layer, inputs).activations
+    end
+    return inputs
+end
+
+"""
     compute_loss_gradient(net_output, label, loss_fn)
 
-Computes the loss and its gradient with respect to `net_output`.
+Computes the gradient of `loss_fn` with respect to `net_output`, evaluated at
+`net_output`.
 """
 function compute_loss_gradient(net_output::AbstractVector{<:Number},
                                label::AbstractVector{<:Number},
@@ -194,9 +207,6 @@ function compute_loss_gradient(net_output::AbstractVector{<:Number},
     # contains f(x) = loss_fn(label[i], x)
     lossmap = map(y -> (x -> loss_fn(y, x)), label)
 
-    # TODO: Separate the actual loss computation.
-    print("Loss: $(map.(lossmap, net_output))\n")
-
     # Take the gradient of each loss function with respect to each output,
     # evaluated at the outputs.
     # dL_dO is just the derivative of the loss function.
@@ -204,6 +214,21 @@ function compute_loss_gradient(net_output::AbstractVector{<:Number},
         vec -> map(t -> t[1], vec)
 
     return dL_dO
+end
+
+"""
+    compute_loss(net_output, label, loss_fn)
+
+Computes the loss between `label` and `net_output` using `loss_fn`.
+"""
+function compute_loss(net_output::AbstractVector{<:Number},
+                      label::AbstractVector{<:Number},
+                      loss_fn::Function)::AbstractVector{<:Number}
+    # Vector of partially-applied loss functions, where each entry lossmap[i]
+    # contains f(x) = loss_fn(label[i], x)
+    lossmap = map(y -> (x -> loss_fn(y, x)), label)
+
+    return map.(lossmap, net_output)
 end
 
 """
@@ -248,9 +273,6 @@ function update_layer_weights(layer::Layer,
                               backward_pass::LayerBackwardPass,
                               learning_rate::Number)
     @assert size(layer.weights) == size(backward_pass.dL_dW)
-
-    print("Previous weights: $(layer.weights)\n")
-    print("Weight change: $(learning_rate .* backward_pass.dL_dW)\n")
 
     weights = layer.weights .- (learning_rate .* backward_pass.dL_dW)
     return Layer(weights, layer.activation_fns)

@@ -1,72 +1,62 @@
 include("neural_networks.jl")
 
 # TODO: make this work for batches
-using LinearAlgebra, Random
+using LinearAlgebra, Random, Plots
 
 learning_rate = 0.1
-abs_error(x, y) = abs(x - y)
+sq_error(x,y) = (x-y) .* (x-y)
 e_approx = float(MathConstants.e)
 sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
-relu(x) = max(0,x)
 
-# The mapping to learn:
-# [0,0] -> [1,0,0,0]
-# [0,1] -> [0,2,0,0]
-# [1,0] -> [0,0,3,0]
-# [1,1] -> [0,0,0,4]
+# Learn XOR
+# [a, b] -> [a XOR b]
+nn = NeuralNetworks.create_nn([2,1], sigmoid, sq_error, 2, 1)
+EPOCHS = 25000
+xs = 1:4*EPOCHS
+ys = Vector(undef, 4*EPOCHS)
+for (index, input) in enumerate(shuffle(repeat([[0,0],[0,1],[1,0],[1,1]], EPOCHS)))
+    label = float(input[1] ⊻ input[2])
 
-nn = NeuralNetworks.create_nn([2,2,4], relu, abs_error, 2, 4)
-
-for (index, input) in enumerate(shuffle(repeat([[0,0],[0,1],[1,0],[1,1]], 10)))
-    print("====\nIteration $index\n====\n")
-
-    # Set up inputs
-    val = 1
-    if input[1] == 1
-        val += 2
-    end
-    if input[2] == 1
-        val += 1
-    end
-    label = zeros(4)
-    label[val] = 1
-
-    print("$input, $label\n")
-
-    # Run inference.
+    # Run inference
     layer_1_forward = NeuralNetworks.predict(nn.layers[1], input)
     layer_2_forward = NeuralNetworks.predict(nn.layers[2], layer_1_forward.activations)
-    layer_3_forward = NeuralNetworks.predict(nn.layers[3], layer_2_forward.activations)
 
-    print("Prediction: $(layer_3_forward.activations)\n")
+    # Compute loss
+    loss = NeuralNetworks.compute_loss(layer_2_forward.activations,
+                                      [label],
+                                      sq_error)[1]
 
-    loss_grad = NeuralNetworks.compute_loss_gradient(layer_3_forward.activations,
-                                                     label,
-                                                     abs_error)
-    layer_3_backward =
-        NeuralNetworks.compute_weight_gradients(nn.layers[3],
-                                                layer_3_forward,
-                                                loss_grad)
+    # Backprop
+    loss_grad = NeuralNetworks.compute_loss_gradient(layer_2_forward.activations,
+                                                     [label],
+                                                     sq_error)
     layer_2_backward =
         NeuralNetworks.compute_weight_gradients(nn.layers[2],
                                                 layer_2_forward,
-                                                layer_3_backward.dL_dI[1:end-1])
+                                                loss_grad)
     layer_1_backward =
         NeuralNetworks.compute_weight_gradients(nn.layers[1],
                                                 layer_1_forward,
                                                 layer_2_backward.dL_dI[1:end-1])
 
-    print("Layer 3 ")
-    nn.layers[3] = NeuralNetworks.update_layer_weights(nn.layers[3],
-                                                       layer_3_backward,
-                                                       learning_rate)
-    print("Layer 2 ")
+    # Update weights
     nn.layers[2] = NeuralNetworks.update_layer_weights(nn.layers[2],
                                                        layer_2_backward,
                                                        learning_rate)
-    print("Layer 1 ")
     nn.layers[1] = NeuralNetworks.update_layer_weights(nn.layers[1],
                                                        layer_1_backward,
                                                        learning_rate)
+    ys[index] = loss
+    if (index % 1000 == 0)
+        print("Iteration $index / $(4 * EPOCHS)\n")
+    end
+end
 
+plt = plot(xs[1:100:end], ys[1:100:end], seriestype = :scatter)
+display(plt)
+
+for input in [[0,0],[0,1],[1,0],[1,1]]
+    print("Input: $input / " *
+          "Prediction: $(NeuralNetworks.predict(nn, input)) / " *
+          "Actual: $(input[1] ⊻ input[2])\n")
 end
