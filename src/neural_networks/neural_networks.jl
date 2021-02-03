@@ -304,9 +304,7 @@ function update_layer_weights!(layer::Layer,
 end
 
 """
-    train(nn, data, labels, learning_rate)
-
-TODO: implement batch and minibatch.
+    train!(nn, data, labels, learning_rate)
 """
 function train!(nn::NeuralNetwork,
                 data::AbstractVector,
@@ -377,6 +375,210 @@ function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
 end
 
 ##
+## Vectorized implementations (experimental)
+##
+
+# It's not ideal that the implementation is forked, but it's rather challenge to
+# have a single implementation that handles both vectorized and non-vectorized
+# updates. In particular, the vectorized code is significantly more complex, so
+# most parts are minimally commented, as they assume prior understanding of the
+# underlying math.
+
+"""
+Vectorized forward-pass data structure.
+"""
+struct LayerForwardPassVectorized
+    # (n * d_in+1)
+    inputs::AbstractMatrix{<:Number}
+    # (n * d_out)
+    sums::AbstractMatrix{<:Number}
+    # (n * d_out)
+    activations::AbstractMatrix{<:Number}
+end
+
+"""
+Vectorized backward-pass data structure.
+"""
+struct LayerBackwardPassVectorized
+    # (n * d_out)
+    dL_dS::AbstractMatrix{<:Number}
+    # (n * d_in+1 * d_out)
+    dL_dW::AbstractArray{<:Number, 3}
+    # (n * d_in)
+    dL_dI::AbstractMatrix{<:Number}
+end
+
+"""
+    run_forward_pass_vectorized(layer, inputs)
+
+Vectorized forward-pass.
+
+- `inputs`: (n * d_in) matrix of samples.
+"""
+function run_forward_pass_vectorized(layer::Layer,
+                                     inputs::AbstractMatrix{<:Number})::LayerForwardPassVectorized
+    @assert ndims(inputs) == 2
+    @assert size(inputs, 2) == in_ndims_sans_bias(layer)
+
+    num_samples = size(inputs, 1)
+    # Append the bias column (extra dimension for each sample).
+    biased_inputs = [inputs ones(num_samples,1)]
+    # (n * d_in+1) * (d_in+1 * d_out)
+    sums = biased_inputs * layer.weights
+
+    # Magic!
+    # `mapslices(f, m, dims=2)` broadcasts f to each row of m.
+    # `map.(f, v)` performs elementwise function application for equal sized
+    # vectors of functoins and elements.
+    # The net result is that the dth function is applied to every element in the
+    # dth column.
+    activations = mapslices(row -> map.(layer.activation_fns, row), sums, dims=2)
+
+    return LayerForwardPassVectorized(biased_inputs, sums, activations)
+end
+
+"""
+    compute_loss_gradient_vectorized(net_outputs, labels, loss_fn)
+
+Vectorized gradient computation.
+
+- `loss_fn`: a function that computes a scalar loss from two matrices.
+- `net_outputs`: (n * d) matrix of output predictions (rows are samples).
+- `labels`: (n * d) matrix of labels (rows are samples).
+
+Returns (n * d) matrix of gradients.
+"""
+function compute_loss_gradient_vectorized(net_outputs::AbstractMatrix{<:Number},
+                                          labels::AbstractMatrix{<:Number},
+                                          loss_fn::Function)::AbstractMatrix{<:Number}
+    @assert size(net_outputs) == size(labels)
+
+    partial_loss(xs) = loss_fn(labels, xs)
+    dL_dO = gradient(partial_loss, net_outputs)[1]
+
+    return dL_dO
+end
+
+"""
+    run_backward_pass_vectorized(layer, forward_pass, dL_dO)
+
+Vectorized backward-pass.
+
+- `dL_dO`: (n * d_out) matrix of gradients.
+"""
+function run_backward_pass_vectorized(layer::Layer,
+                                      forward_pass::LayerForwardPassVectorized,
+                                      dL_dO::AbstractMatrix{<:Number})::LayerBackwardPassVectorized
+    @assert size(dL_dO, 2) == out_ndims(forward_pass)
+
+    num_samples = size(dL_dO, 1)
+
+    # Slice by row, and for each, do element-wise activation function
+    # application.
+    # forward_pass.sums is (n * d_out).
+    # (n * d_out)
+    dO_dS = mapslices(row -> map(gradient, layer.activation_fns, row),
+                      forward_pass.sums,
+                      dims=[2]) |>
+        vec -> map(t -> t[1], vec)
+    # (n * d_out)
+    dL_dS = dL_dO .* dO_dS
+
+    # Slice by row (each row is a (d_in+1 * d_out) matrix!), and for each
+    # compute the outer product which computes the weight gradients for the
+    # given sample.
+    # inputs are (n * d_in+1), dL_dS is (n * d_out).
+    # (n * d_in+1 * d_out)
+    dL_dW = permutedims(
+        cat([forward_pass.inputs[i,:] * transpose(dL_dS[i,:]) for i in num_samples]...,
+            dims=3),
+        (3,1,2))
+
+    # Weights are (d_in+1, d_out)
+    # (n * d_in+1)
+    dL_dI = dL_dS * transpose(layer.weights)
+
+    return LayerBackwardPassVectorized(dL_dS, dL_dW, dL_dI)
+end
+
+"""
+    update_layer_weights_vectorized!(layer, backward_pass, learning_rate)
+
+Vectorized layer weight update
+"""
+function update_layer_weights_vectorized!(layer::Layer,
+                                          backward_pass::LayerBackwardPassVectorized,
+                                          learning_rate::Number)
+    @assert size(layer.weights) == size(backward_pass.dL_dW)[2:end]
+
+    layer.weights .-= (learning_rate .*
+                       dropdims(sum(backward_pass.dL_dW, dims=1), dims=1))
+end
+
+"""
+    train_vectorized!(nn, data, labels, learning_rate)
+
+Vectorized gradient descent.
+"""
+function train_vectorized!(nn::NeuralNetwork,
+                           data::AbstractVector,
+                           labels::AbstractVector,
+                           learning_rate::Number)::TrainingStats
+    @assert length(data) == length(labels)
+
+    num_layers = length(nn.layers)
+
+    # Record the results of forward and backward passes for each layer.
+    # These are only used for backprop and are overwritten on every epoch.
+    forward_passes = Vector{LayerForwardPassVectorized}(undef, num_layers)
+    backward_passes = Vector{LayerBackwardPassVectorized}(undef, num_layers)
+
+    losses = Vector(undef, length(data))
+
+    for (index, input) in enumerate(data)
+        label = reshape(labels[index], (1,length(labels[index])))
+        input = reshape(input, (1,length(input)))
+
+        # Run forward-pass.
+        for l in 1:num_layers
+            forward_passes[l] = run_forward_pass_vectorized(nn.layers[l], input)
+            input = forward_passes[l].activations
+        end
+
+        # Compute loss.
+        loss = nn.loss_fn(input, label)
+
+        # Backprop.
+        loss_grad = compute_loss_gradient_vectorized(input, label, nn.loss_fn)
+
+        for l in reverse(1:num_layers)
+            backward_passes[l] =
+                run_backward_pass_vectorized(nn.layers[l],
+                                             forward_passes[l],
+                                             l == num_layers ?
+                                             loss_grad :
+                                             # Chop off the bias column.
+                                             backward_passes[l+1].dL_dI[:,1:end-1])
+        end
+
+        # Update weights. The weight updates have already been computed, so this
+        # can be done in any order.
+        for l in 1:num_layers
+            update_layer_weights_vectorized!(nn.layers[l],
+                                             backward_passes[l],
+                                             learning_rate)
+        end
+
+        losses[index] = loss
+        if (index % 1000 == 0)
+            print("Iteration $index / $(length(data)) : loss=$(loss)\n")
+        end
+    end
+
+    return TrainingStats(losses)
+end
+
+##
 ## Miscellaneous
 ##
 
@@ -428,6 +630,17 @@ Returns the number of outputs from `layer`.
 function out_ndims(layer::LayerForwardPass)
     @assert length(layer.sums) == length(layer.activations)
     return length(layer.activations)
+end
+
+"""
+    out_ndims(layer)
+
+Returns the number of outputs from `layer`.
+"""
+function out_ndims(layer::LayerForwardPassVectorized)
+    @assert size(layer.sums) == size(layer.activations)
+
+    return size(layer.activations, 2)
 end
 
 """
