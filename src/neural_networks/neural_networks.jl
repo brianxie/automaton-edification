@@ -479,7 +479,7 @@ function run_backward_pass_vectorized(layer::Layer,
     # (n * d_out)
     dO_dS = mapslices(row -> map(gradient, layer.activation_fns, row),
                       forward_pass.sums,
-                      dims=[2]) |>
+                      dims=2) |>
         vec -> map(t -> t[1], vec)
     # (n * d_out)
     dL_dS = dL_dO .* dO_dS

@@ -15,7 +15,7 @@ sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
 if VECTORIZED
     batch_size = 4
     learning_rate = 0.3
-    epochs = 50000
+    epochs = 100
 end
 
 nn = NeuralNetworks.create_nn([2,1], sigmoid, mse, 2, 1)
