@@ -304,13 +304,13 @@ function update_layer_weights!(layer::Layer,
 end
 
 """
-    train!(nn, data, labels, learning_rate)
+    train!(nn, samples, labels, learning_rate)
 """
 function train!(nn::NeuralNetwork,
-                data::AbstractVector,
+                samples::AbstractVector,
                 labels::AbstractVector,
                 learning_rate::Number)::TrainingStats
-    @assert length(data) == length(labels)
+    @assert length(samples) == length(labels)
 
     num_layers = length(nn.layers)
 
@@ -319,9 +319,9 @@ function train!(nn::NeuralNetwork,
     forward_passes = Vector{LayerForwardPass}(undef, num_layers)
     backward_passes = Vector{LayerBackwardPass}(undef, num_layers)
 
-    losses = Vector(undef, length(data))
+    losses = Vector(undef, length(samples))
 
-    for (index, input) in enumerate(data)
+    for (index, input) in enumerate(samples)
         label = labels[index]
 
         # Run forward-pass.
@@ -355,7 +355,7 @@ function train!(nn::NeuralNetwork,
 
         losses[index] = loss
         if (index % 1000 == 0)
-            print("Iteration $index / $(length(data)) : loss=$(loss)\n")
+            print("Iteration $index / $(length(samples)) : loss=$(loss)\n")
         end
     end
 
@@ -516,40 +516,46 @@ function update_layer_weights_vectorized!(layer::Layer,
 end
 
 """
-    train_vectorized!(nn, data, labels, learning_rate)
+    train_vectorized!(nn, samples, labels, learning_rate)
 
 Vectorized gradient descent.
 """
 function train_vectorized!(nn::NeuralNetwork,
-                           data::AbstractVector,
+                           samples::AbstractVector,
                            labels::AbstractVector,
-                           learning_rate::Number)::TrainingStats
-    @assert length(data) == length(labels)
+                           learning_rate::Number,
+                           batch_size::Integer)::TrainingStats
+    @assert length(samples) == length(labels)
 
     num_layers = length(nn.layers)
 
-    # Record the results of forward and backward passes for each layer.
-    # These are only used for backprop and are overwritten on every epoch.
     forward_passes = Vector{LayerForwardPassVectorized}(undef, num_layers)
     backward_passes = Vector{LayerBackwardPassVectorized}(undef, num_layers)
 
-    losses = Vector(undef, length(data))
+    # Divide the data into batch_size chunks.
+    sample_batches = Iterators.partition(samples, batch_size) |> collect
+    label_batches = Iterators.partition(labels, batch_size) |> collect
 
-    for (index, input) in enumerate(data)
-        label = reshape(labels[index], (1,length(labels[index])))
-        input = reshape(input, (1,length(input)))
+    num_passes = length(sample_batches)
+    losses = Vector(undef, num_passes)
+
+    for (index, input) in enumerate(sample_batches)
+        input_batch = transpose(hcat(input...))
+        label_batch = transpose(hcat(label_batches[index]...))
 
         # Run forward-pass.
         for l in 1:num_layers
-            forward_passes[l] = run_forward_pass_vectorized(nn.layers[l], input)
-            input = forward_passes[l].activations
+            forward_passes[l] = run_forward_pass_vectorized(nn.layers[l], input_batch)
+            input_batch = forward_passes[l].activations
         end
 
         # Compute loss.
-        loss = nn.loss_fn(input, label)
+        loss = nn.loss_fn(input_batch, label_batch)
 
         # Backprop.
-        loss_grad = compute_loss_gradient_vectorized(input, label, nn.loss_fn)
+        loss_grad = compute_loss_gradient_vectorized(input_batch,
+                                                     label_batch,
+                                                     nn.loss_fn)
 
         for l in reverse(1:num_layers)
             backward_passes[l] =
@@ -571,7 +577,7 @@ function train_vectorized!(nn::NeuralNetwork,
 
         losses[index] = loss
         if (index % 1000 == 0)
-            print("Iteration $index / $(length(data)) : loss=$(loss)\n")
+            print("Iteration $index / $(num_passes) : loss=$(loss)\n")
         end
     end
 
