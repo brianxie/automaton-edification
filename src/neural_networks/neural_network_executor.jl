@@ -25,17 +25,20 @@ nn = NeuralNetworks.create_nn([2,1], sigmoid, mse, 2, 1)
 data = shuffle(repeat([[0,0],[0,1],[1,0],[1,1]], epochs))
 # Each label is a vector (even if a singleton)
 labels = map(point -> [float(point[1] ⊻ point[2])], data)
-# This can also be replaced with `train_vectorized!`.
-stats = VECTORIZED ?
-    NeuralNetworks.train_vectorized!(nn, data, labels, learning_rate, batch_size) :
-    NeuralNetworks.train!(nn, data, labels, learning_rate)
-plt = plot(1:100:length(stats.losses),
-           stats.losses[1:100:end],
-           seriestype = :scatter)
-display(plt)
+
+@time begin
+    stats = VECTORIZED ?
+        NeuralNetworks.train_vectorized!(nn, data, labels, learning_rate, batch_size) :
+        NeuralNetworks.train!(nn, data, labels, learning_rate)
+end
 
 for input in [[0,0],[0,1],[1,0],[1,1]]
     print("Input: $input / " *
           "Prediction: $(NeuralNetworks.predict(nn, input)) / " *
           "Actual: $(input[1] ⊻ input[2])\n")
 end
+
+plt = plot(1:100:length(stats.losses),
+           stats.losses[1:100:end],
+           seriestype = :scatter)
+display(plt)

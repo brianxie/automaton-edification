@@ -375,14 +375,13 @@ function predict(nn::NeuralNetwork, inputs::AbstractVector{<:Number})
 end
 
 ##
-## Vectorized implementations (experimental)
+## Vectorized implementations
 ##
 
-# It's not ideal that the implementation is forked, but it's rather challenge to
-# have a single implementation that handles both vectorized and non-vectorized
-# updates. In particular, the vectorized code is significantly more complex, so
-# most parts are minimally commented, as they assume prior understanding of the
-# underlying math.
+# It's not ideal that the implementation is forked, but it's rather challenging
+# to have a single implementation that handles both vectorized and
+# non-vectorized updates. In particular, the vectorized code is significantly
+# more complex, so is not optimized for clarity.
 
 """
 Vectorized forward-pass data structure.
@@ -451,9 +450,9 @@ end
 
 Vectorized gradient computation.
 
-- `loss_fn`: a function that computes a scalar loss from two matrices.
 - `net_outputs`: (n * d) matrix of output predictions (rows are samples).
 - `labels`: (n * d) matrix of labels (rows are samples).
+- `loss_fn`: a function that computes a scalar loss from two matrices.
 
 Returns (n * d) matrix of gradients.
 """
@@ -557,7 +556,7 @@ function update_layer_weights_vectorized!(layer::Layer,
 end
 
 """
-    train_vectorized!(nn, samples, labels, learning_rate)
+    train_vectorized!(nn, samples, labels, learning_rate, batch_size)
 
 Vectorized gradient descent.
 """
