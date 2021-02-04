@@ -14,7 +14,7 @@ sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
 # Used for vectorized implementation.
 if VECTORIZED
     batch_size = 32
-    learning_rate = 0.3
+    learning_rate = 0.2
     epochs = 64000
 end
 

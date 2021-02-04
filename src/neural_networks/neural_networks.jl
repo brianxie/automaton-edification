@@ -400,10 +400,10 @@ end
 Vectorized backward-pass data structure.
 """
 struct LayerBackwardPassVectorized
-    # (n * d_out)
-    dL_dS::AbstractMatrix{<:Number}
-    # (n * d_in+1 * d_out)
-    dL_dW::AbstractArray{<:Number, 3}
+    # Since only the total gradient update is needed, the n-dimension is collapsed.
+    # Otherwise, this would be a 3D (n * d_in+1 + d_out) array.
+    # (d_in+1 * d_out)
+    dL_dW::AbstractMatrix{<:Number}
     # (n * d_in)
     dL_dI::AbstractMatrix{<:Number}
 end
@@ -426,13 +426,22 @@ function run_forward_pass_vectorized(layer::Layer,
     # (n * d_in+1) * (d_in+1 * d_out)
     sums = biased_inputs * layer.weights
 
-    # Magic!
+    # One-liner alternative:
+    #
+    # activations = mapslices(row -> map.(layer.activation_fns, row), sums, dims=2)
+    #
     # `mapslices(f, m, dims=2)` broadcasts f to each row of m.
     # `map.(f, v)` performs elementwise function application for equal sized
     # vectors of functoins and elements.
     # The net result is that the dth function is applied to every element in the
     # dth column.
-    activations = mapslices(row -> map.(layer.activation_fns, row), sums, dims=2)
+
+    activations = Matrix{Float64}(undef, num_samples, out_ndims(layer))
+    for j in 1:out_ndims(layer)
+        for i in 1:num_samples
+            activations[i,j] = layer.activation_fns[j](sums[i,j])
+        end
+    end
 
     return LayerForwardPassVectorized(biased_inputs, sums, activations)
 end
@@ -473,32 +482,61 @@ function run_backward_pass_vectorized(layer::Layer,
 
     num_samples = size(dL_dO, 1)
 
+    # One-liner alternative:
+    #
     # Slice by row, and for each, do element-wise activation function
     # application.
-    # forward_pass.sums is (n * d_out).
-    # (n * d_out)
-    dO_dS = mapslices(row -> map(gradient, layer.activation_fns, row),
-                      forward_pass.sums,
-                      dims=2) |>
-        vec -> map(t -> t[1], vec)
+    #
+    # dO_dS = mapslices(row -> map(gradient, layer.activation_fns, row),
+    #                   forward_pass.sums,
+    #                   dims=2) |>
+    #     vec -> map(t -> t[1], vec)
+
+    dO_dS = Array{Float64, 2}(undef, (num_samples, # n
+                                      length(layer.activation_fns))) # d_out
+    for j in 1:length(layer.activation_fns)
+        for i in 1:num_samples
+            # forward_pass.sums is (n * d_out).
+            dO_dS[i,j] = gradient(layer.activation_fns[j],
+                                  forward_pass.sums[i,j])[1]
+        end
+    end
+
     # (n * d_out)
     dL_dS = dL_dO .* dO_dS
 
+    # 1/ One-liner for 3D solution (keep each sample, (n * d_in+1 * d_out))
     # Slice by row (each row is a (d_in+1 * d_out) matrix!), and for each
     # compute the outer product which computes the weight gradients for the
     # given sample.
+    #
+    # dL_dW = permutedims(
+    #     cat([forward_pass.inputs[i,:] * transpose(dL_dS[i,:]) for i in 1:num_samples]...,
+    #         dims=3),
+    #     (3,1,2))
+
+    # 2/ Vectorized 3D, (n * d_in * d_out)
+    #
+    # dL_dW = Array{Float64, 3}(undef, (num_samples, # n
+    #                                   size(forward_pass.inputs, 2), # d_in
+    #                                   size(dL_dS, 2))) # d_out
+    # for i in 1:num_samples
+    #     # Poor cache locality
+    #     dL_dW[i,:,:] .= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
+    # end
+
     # inputs are (n * d_in+1), dL_dS is (n * d_out).
-    # (n * d_in+1 * d_out)
-    dL_dW = permutedims(
-        cat([forward_pass.inputs[i,:] * transpose(dL_dS[i,:]) for i in 1:num_samples]...,
-            dims=3),
-        (3,1,2))
+    dL_dW = zeros((size(forward_pass.inputs, 2), # d_in
+                   size(dL_dS, 2))) # d_out
+    for i in 1:num_samples
+        dL_dW .+= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
+    end
 
     # Weights are (d_in+1, d_out)
     # (n * d_in+1)
     dL_dI = dL_dS * transpose(layer.weights)
 
-    return LayerBackwardPassVectorized(dL_dS, dL_dW, dL_dI)
+    return LayerBackwardPassVectorized(dL_dW, dL_dI)
 end
 
 """
@@ -509,18 +547,19 @@ Vectorized layer weight update
 function update_layer_weights_vectorized!(layer::Layer,
                                           backward_pass::LayerBackwardPassVectorized,
                                           learning_rate::Number)
-    @assert size(layer.weights) == size(backward_pass.dL_dW)[2:end]
+    @assert size(layer.weights) == size(backward_pass.dL_dW)
 
-    layer.weights .-= (learning_rate .*
-                       dropdims(sum(backward_pass.dL_dW, dims=1), dims=1))
+    # One-liner for n-dimension collapse:
+    # layer.weights .-= (learning_rate .*
+    #                    dropdims(sum(backward_pass.dL_dW, dims=1), dims=1))
+
+    layer.weights .-= (learning_rate .* backward_pass.dL_dW)
 end
 
 """
     train_vectorized!(nn, samples, labels, learning_rate)
 
 Vectorized gradient descent.
-
-# TODO: Reduce allocations
 """
 function train_vectorized!(nn::NeuralNetwork,
                            samples::AbstractVector,
