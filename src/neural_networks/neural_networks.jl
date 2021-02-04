@@ -574,16 +574,17 @@ function train_vectorized!(nn::NeuralNetwork,
     backward_passes = Vector{LayerBackwardPassVectorized}(undef, num_layers)
 
     # Divide the data into batch_size chunks.
-    sample_batches = Iterators.partition(samples, batch_size) |> collect
-    label_batches = Iterators.partition(labels, batch_size) |> collect
+    sample_batches = Iterators.partition(samples, batch_size) |>
+        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
+        collect
+    label_batches = Iterators.partition(labels, batch_size) |> collect |>
+        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
+        collect
 
     num_passes = length(sample_batches)
     losses = Vector(undef, num_passes)
 
-    for (index, input) in enumerate(sample_batches)
-        input_batch = transpose(hcat(input...))
-        label_batch = transpose(hcat(label_batches[index]...))
-
+    for (index, input_batch) in enumerate(sample_batches)
         # Run forward-pass.
         for l in 1:num_layers
             forward_passes[l] = run_forward_pass_vectorized(nn.layers[l], input_batch)
@@ -591,13 +592,12 @@ function train_vectorized!(nn::NeuralNetwork,
         end
 
         # Compute loss.
-        loss = nn.loss_fn(input_batch, label_batch)
+        loss = nn.loss_fn(input_batch, label_batches[index])
 
         # Backprop.
         loss_grad = compute_loss_gradient_vectorized(input_batch,
-                                                     label_batch,
+                                                     label_batches[index],
                                                      nn.loss_fn)
-
         for l in reverse(1:num_layers)
             backward_passes[l] =
                 run_backward_pass_vectorized(nn.layers[l],
