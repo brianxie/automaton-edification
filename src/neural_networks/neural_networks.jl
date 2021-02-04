@@ -490,7 +490,7 @@ function run_backward_pass_vectorized(layer::Layer,
     # inputs are (n * d_in+1), dL_dS is (n * d_out).
     # (n * d_in+1 * d_out)
     dL_dW = permutedims(
-        cat([forward_pass.inputs[i,:] * transpose(dL_dS[i,:]) for i in num_samples]...,
+        cat([forward_pass.inputs[i,:] * transpose(dL_dS[i,:]) for i in 1:num_samples]...,
             dims=3),
         (3,1,2))
 
@@ -519,6 +519,8 @@ end
     train_vectorized!(nn, samples, labels, learning_rate)
 
 Vectorized gradient descent.
+
+# TODO: Reduce allocations
 """
 function train_vectorized!(nn::NeuralNetwork,
                            samples::AbstractVector,

@@ -13,9 +13,9 @@ sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
 
 # Used for vectorized implementation.
 if VECTORIZED
-    batch_size = 4
+    batch_size = 32
     learning_rate = 0.3
-    epochs = 100
+    epochs = 64000
 end
 
 nn = NeuralNetworks.create_nn([2,1], sigmoid, mse, 2, 1)
