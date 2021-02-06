@@ -25,7 +25,7 @@ To add additional packages as dependencies:
 Start the REPL by running:
 
 #+begin_src
-julia --project=@.
+julia --project=@. [--threads=<num-threads>]
 #+end_src
 
 in the project directory, which automatically loads the project environment.

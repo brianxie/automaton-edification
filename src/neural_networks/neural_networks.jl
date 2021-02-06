@@ -496,7 +496,7 @@ function run_backward_pass_vectorized!(layer::Layer,
     #     vec -> map(t -> t[1], vec)
 
     # This loop computes dO_dS but writes it into dL_dS to save an allocation.
-    for j in 1:length(layer.activation_fns)
+    Threads.@threads for j in 1:length(layer.activation_fns)
         for i in 1:num_samples
             # forward_pass.sums is (n * d_out).
             backward_pass_out.dL_dS[i,j] = gradient(layer.activation_fns[j],
@@ -531,7 +531,7 @@ function run_backward_pass_vectorized!(layer::Layer,
     # inputs are (n * d_in+1), dL_dS is (n * d_out).
     # (d_in * d_out)
     fill!(backward_pass_out.dL_dW, 0.0)
-    for i in 1:num_samples
+    Threads.@threads for i in 1:num_samples
         # dL_dW .+= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
         BLAS.axpy!(1,
                    forward_pass.inputs[i,:] * transpose(backward_pass_out.dL_dS[i,:]),
