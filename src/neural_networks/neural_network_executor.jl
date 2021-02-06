@@ -9,7 +9,7 @@ learning_rate = 0.1
 epochs = 25000
 mse(x,y) = mean(sum((x .- y) .^2, dims=2), dims=1)[1]
 e_approx = float(MathConstants.e)
-sigmoid(x) = 1.0 / (1.0 + e_approx^(-x))
+sigmoid(x) = (1.0 + MathConstants.e^(-x))^(-1)
 
 # Used for vectorized implementation.
 if VECTORIZED
