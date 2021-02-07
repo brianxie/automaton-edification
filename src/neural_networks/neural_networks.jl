@@ -439,7 +439,7 @@ function run_forward_pass_vectorized!(layer::Layer,
     # The net result is that the dth function is applied to every element in the
     # dth column.
 
-    for j in 1:out_ndims(layer)
+    Threads.@threads for j in 1:out_ndims(layer)
         map!(layer.activation_fns[j],
              view(forward_pass_out.activations, : , j),
              view(forward_pass_out.sums, :, j))
@@ -530,6 +530,7 @@ function run_backward_pass_vectorized!(layer::Layer,
     # inputs are (n * d_in+1), dL_dS is (n * d_out).
     # (d_in * d_out)
     fill!(backward_pass_out.dL_dW, 0.0)
+    # TODO: Parallelize this with thread-local memory, and combine at end
     for i in 1:num_samples
         # dL_dW .+= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
         BLAS.axpy!(1,
@@ -541,7 +542,14 @@ function run_backward_pass_vectorized!(layer::Layer,
     # Weights are (d_in+1, d_out)
     # (n * d_in+1)
     # dL_dI = dL_dS * transpose(layer.weights)
-    mul!(backward_pass_out.dL_dI, backward_pass_out.dL_dS, transpose(layer.weights))
+    # Uses BLAS to avoid allocation for the transpose.
+    BLAS.gemm!('N',
+               'T',
+               1.0,
+               backward_pass_out.dL_dS,
+               layer.weights,
+               0.0,
+               backward_pass_out.dL_dI)
 end
 
 """
@@ -637,6 +645,9 @@ function train_vectorized!(nn::NeuralNetwork,
 
         # Update weights. The weight updates have already been computed, so this
         # can be done in any order.
+        # This could be multithreaded, but the network would need to be very
+        # deep for the parallelism to outweigh the thread overhead, so it's not
+        # recommended.
         for l in 1:num_layers
             update_layer_weights_vectorized!(nn.layers[l],
                                              backward_passes[l],
