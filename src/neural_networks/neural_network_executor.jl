@@ -2,21 +2,15 @@ include("neural_networks.jl")
 
 using Statistics, LinearAlgebra, Random, Plots
 
-VECTORIZED = true
+VECTORIZED = false
 
 # Parameters
-learning_rate = 0.1
-epochs = 25000
+batch_size = 32
+learning_rate = 0.2
+epochs = 64000
 mse(x,y) = mean(sum((x .- y) .^2, dims=2), dims=1)[1]
 e_approx = float(MathConstants.e)
 sigmoid(x) = (1.0 + MathConstants.e^(-x))^(-1)
-
-# Used for vectorized implementation.
-if VECTORIZED
-    batch_size = 32
-    learning_rate = 0.2
-    epochs = 64000
-end
 
 nn = NeuralNetworks.create_nn([2,1], sigmoid, mse, 2, 1)
 
@@ -29,7 +23,7 @@ labels = map(point -> [float(point[1] ⊻ point[2])], data)
 @time begin
     stats = VECTORIZED ?
         NeuralNetworks.train_vectorized!(nn, data, labels, learning_rate, batch_size) :
-        NeuralNetworks.train!(nn, data, labels, learning_rate)
+        NeuralNetworks.train!(nn, data, labels, learning_rate, batch_size)
 end
 
 for input in [[0,0],[0,1],[1,0],[1,1]]

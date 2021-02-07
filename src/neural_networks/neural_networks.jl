@@ -290,72 +290,93 @@ function run_backward_pass(layer::Layer,
 end
 
 """
-    update_layer_weights!(layer, backward_pass, learning_rate)
+    update_layer_weights!(layer, backward_pass, num_samples, learning_rate)
 
 Updates weights according to backprop gradient calculation by applying values
 from a previously computed `backward_pass`.
 """
 function update_layer_weights!(layer::Layer,
                                backward_pass::LayerBackwardPass,
+                               num_samples::Number,
                                learning_rate::Number)
     @assert size(layer.weights) == size(backward_pass.dL_dW)
 
-    layer.weights .-= (learning_rate .* backward_pass.dL_dW)
+    layer.weights .-= (learning_rate .* backward_pass.dL_dW ./ num_samples)
 end
 
 """
-    train!(nn, samples, labels, learning_rate)
+    train!(nn, samples, labels, learning_rate, batch_size)
 """
 function train!(nn::NeuralNetwork,
                 samples::AbstractVector,
                 labels::AbstractVector,
-                learning_rate::Number)::TrainingStats
+                learning_rate::Number,
+                batch_size::Integer)::TrainingStats
     @assert length(samples) == length(labels)
 
     num_layers = length(nn.layers)
 
-    # Record the results of forward and backward passes for each layer.
-    # These are only used for backprop and are overwritten on every epoch.
-    forward_passes = Vector{LayerForwardPass}(undef, num_layers)
-    backward_passes = Vector{LayerBackwardPass}(undef, num_layers)
+    # Divide the data into batch_size chunks.
+    sample_batches = Iterators.partition(samples, batch_size) |> collect
+    label_batches = Iterators.partition(labels, batch_size) |> collect
 
-    losses = Vector(undef, length(samples))
+    num_passes = length(sample_batches)
 
-    for (index, input) in enumerate(samples)
-        label = labels[index]
+    losses = Vector(undef, length(sample_batches))
 
-        # Run forward-pass.
-        for l in 1:num_layers
-            forward_passes[l] = run_forward_pass(nn.layers[l], input)
-            input = forward_passes[l].activations
-        end
+    for (batch_index, input_batch) in enumerate(sample_batches)
+        label_batch = label_batches[batch_index]
+        num_samples = length(input_batch)
 
-        # Compute loss.
-        loss = nn.loss_fn(input, label)
+        # Record the results of forward and backward passes for each layer.
+        # These are only used for backprop and are overwritten on every batch.
+        # Rows index samples; columns index layers.
+        forward_passes = Matrix{LayerForwardPass}(undef, (num_samples, num_layers))
+        backward_passes = Matrix{LayerBackwardPass}(undef, (num_samples, num_layers))
 
-        # Backprop.
-        loss_grad = compute_loss_gradient(input, label, nn.loss_fn)
+        batch_loss = 0.0
 
-        for l in reverse(1:num_layers)
-            backward_passes[l] =
-                run_backward_pass(nn.layers[l],
-                                  forward_passes[l],
-                                  l == num_layers ?
-                                  loss_grad :
-                                  backward_passes[l+1].dL_dI[1:end-1])
+        # Compute updates for the batch.
+        for (point_index, input_point) in enumerate(input_batch)
+            point_label = label_batch[point_index]
+
+            # Run forward-pass.
+            for l in 1:num_layers
+                forward_passes[point_index, l] = run_forward_pass(nn.layers[l], input_point)
+                input_point = forward_passes[point_index, l].activations
+            end
+
+            # Compute loss.
+            batch_loss += nn.loss_fn(input_point, point_label)
+
+            # Backprop.
+            loss_grad = compute_loss_gradient(input_point, point_label, nn.loss_fn)
+
+            for l in reverse(1:num_layers)
+                backward_passes[point_index, l] =
+                    run_backward_pass(nn.layers[l],
+                                      forward_passes[point_index, l],
+                                      l == num_layers ?
+                                      loss_grad :
+                                      backward_passes[point_index, l+1].dL_dI[1:end-1])
+            end
         end
 
         # Update weights. The weight updates have already been computed, so this
         # can be done in any order.
-        for l in 1:num_layers
+        for i in 1:num_samples, l in 1:num_layers
             update_layer_weights!(nn.layers[l],
-                                  backward_passes[l],
+                                  backward_passes[i, l],
+                                  num_samples,
                                   learning_rate)
         end
 
-        losses[index] = loss
-        if (index % 1000 == 0)
-            print("Iteration $index / $(length(samples)) : loss=$(loss)\n")
+        batch_loss /= num_samples
+
+        losses[batch_index] = batch_loss
+        if (batch_index % 1000 == 0)
+            print("Iteration $batch_index / $(length(sample_batches)) : " *
+                  "loss=$(batch_loss)\n")
         end
     end
 
@@ -621,7 +642,7 @@ function train_vectorized!(nn::NeuralNetwork,
     sample_batches = Iterators.partition(samples, batch_size) |>
         batches -> map(batch -> transpose(hcat(batch...)), batches) |>
         collect
-    label_batches = Iterators.partition(labels, batch_size) |> collect |>
+    label_batches = Iterators.partition(labels, batch_size) |>
         batches -> map(batch -> transpose(hcat(batch...)), batches) |>
         collect
 
