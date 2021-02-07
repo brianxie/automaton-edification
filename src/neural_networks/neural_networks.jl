@@ -440,10 +440,9 @@ function run_forward_pass_vectorized!(layer::Layer,
     # dth column.
 
     for j in 1:out_ndims(layer)
-        for i in 1:num_samples
-            forward_pass_out.activations[i,j] =
-                layer.activation_fns[j](forward_pass_out.sums[i,j])
-        end
+        map!(layer.activation_fns[j],
+             view(forward_pass_out.activations, : , j),
+             view(forward_pass_out.sums, :, j))
     end
 end
 
@@ -531,10 +530,11 @@ function run_backward_pass_vectorized!(layer::Layer,
     # inputs are (n * d_in+1), dL_dS is (n * d_out).
     # (d_in * d_out)
     fill!(backward_pass_out.dL_dW, 0.0)
-    Threads.@threads for i in 1:num_samples
+    for i in 1:num_samples
         # dL_dW .+= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
         BLAS.axpy!(1,
-                   forward_pass.inputs[i,:] * transpose(backward_pass_out.dL_dS[i,:]),
+                   view(forward_pass.inputs,i,:) *
+                   transpose(view(backward_pass_out.dL_dS,i,:)),
                    backward_pass_out.dL_dW)
     end
 
