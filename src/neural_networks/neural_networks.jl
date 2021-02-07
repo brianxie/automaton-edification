@@ -604,6 +604,9 @@ end
     train_vectorized!(nn, samples, labels, learning_rate, batch_size)
 
 Vectorized gradient descent.
+
+TODO: The conditional logic involved in properly handling partial batches causes
+a noticeable performance regression.
 """
 function train_vectorized!(nn::NeuralNetwork,
                            samples::AbstractVector,
@@ -614,6 +617,17 @@ function train_vectorized!(nn::NeuralNetwork,
 
     num_layers = length(nn.layers)
 
+    # Divide the data into batch_size chunks.
+    sample_batches = Iterators.partition(samples, batch_size) |>
+        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
+        collect
+    label_batches = Iterators.partition(labels, batch_size) |> collect |>
+        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
+        collect
+
+    num_passes = length(sample_batches)
+
+    # Preallocate memory for each batch iteration.
     forward_passes = Vector{LayerForwardPassVectorized}(undef, num_layers)
     for l in 1:num_layers
         inputs = zeros(batch_size, in_ndims_with_bias(nn.layers[l]))
@@ -631,18 +645,9 @@ function train_vectorized!(nn::NeuralNetwork,
         backward_passes[l] = LayerBackwardPassVectorized(dL_dS, dL_dW, dL_dI)
     end
 
-    # Divide the data into batch_size chunks.
-    sample_batches = Iterators.partition(samples, batch_size) |>
-        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
-        collect
-    label_batches = Iterators.partition(labels, batch_size) |> collect |>
-        batches -> map(batch -> transpose(hcat(batch...)), batches) |>
-        collect
-
-    num_passes = length(sample_batches)
-    losses = Vector(undef, num_passes)
-
     loss_grad = zeros(batch_size, out_ndims(nn.layers[end]))
+
+    losses = Vector(undef, num_passes)
 
     for (index, input_batch) in enumerate(sample_batches)
         num_samples = size(input_batch, 1)
@@ -691,7 +696,8 @@ function train_vectorized!(nn::NeuralNetwork,
                                           l == num_layers ?
                                           loss_grad :
                                           # Chop off the bias column.
-                                          backward_passes[l+1].dL_dI[:,1:end-1],
+                                          view(backward_passes[l+1].dL_dI,
+                                               :, 1:out_ndims(nn.layers[l])),
                                           num_samples,
                                           batch_size,
                                           backward_passes[l])
@@ -781,6 +787,10 @@ function out_ndims(layer::LayerForwardPassVectorized)
 
     return size(layer.activations, 2)
 end
+
+##
+## Buyer beware
+##
 
 """
 DEPRECATED
