@@ -405,26 +405,34 @@ struct LayerBackwardPassVectorized
     # Otherwise, this would be a 3D (n * d_in+1 + d_out) array.
     # (d_in+1 * d_out)
     dL_dW::AbstractMatrix{<:Number}
-    # (n * d_in)
+    # (n * d_in+1)
     dL_dI::AbstractMatrix{<:Number}
 end
 
 """
-    run_forward_pass_vectorized!(layer, inputs)
+    run_forward_pass_vectorized!(layer, inputs, num_samples, batch_size,
+                                 forward_pass_out)
 
 Vectorized forward-pass.
 
+Content of extra rows when `num_samples` < `batch_size` is undefined.
+
 - `inputs`: (n * d_in) matrix of samples.
+- `num_samples`: n_s, number of input samples.
+- `batch_size`: n, batch size, corresponding to the number of rows preallocated
+  for various matrices; may be larger than `num_samples` for incomplete batches.
 """
 function run_forward_pass_vectorized!(layer::Layer,
-                                     inputs::AbstractMatrix{<:Number},
-                                     forward_pass_out::LayerForwardPassVectorized)
+                                      inputs::AbstractMatrix{<:Number},
+                                      num_samples::Integer,
+                                      batch_size::Integer,
+                                      forward_pass_out::LayerForwardPassVectorized)
     @assert ndims(inputs) == 2
     @assert size(inputs, 2) == in_ndims_sans_bias(layer)
 
-    num_samples = size(inputs, 1)
     # Append the bias column (extra dimension for each sample).
-    forward_pass_out.inputs .= [inputs ones(num_samples,1)]
+    forward_pass_out.inputs .= [inputs ones(batch_size,1)]
+
     # (n * d_in+1) * (d_in+1 * d_out)
     # sums = biased_inputs * layer.weights
     mul!(forward_pass_out.sums, forward_pass_out.inputs, layer.weights)
@@ -435,14 +443,16 @@ function run_forward_pass_vectorized!(layer::Layer,
     #
     # `mapslices(f, m, dims=2)` broadcasts f to each row of m.
     # `map.(f, v)` performs elementwise function application for equal sized
-    # vectors of functoins and elements.
+    # vectors of functions and elements.
     # The net result is that the dth function is applied to every element in the
     # dth column.
 
     Threads.@threads for j in 1:out_ndims(layer)
+        # Skip activation computation for the last (batch_size - num_samples)
+        # rows.
         map!(layer.activation_fns[j],
-             view(forward_pass_out.activations, : , j),
-             view(forward_pass_out.sums, :, j))
+             view(forward_pass_out.activations, 1:num_samples, j),
+             view(forward_pass_out.sums, 1:num_samples, j))
     end
 end
 
@@ -451,38 +461,57 @@ end
 
 Vectorized gradient computation.
 
+Content of extra rows when n_s < n is undefined.
+
 - `net_outputs`: (n * d) matrix of output predictions (rows are samples).
-- `labels`: (n * d) matrix of labels (rows are samples).
+- `labels`: (n_s * d) matrix of labels (rows are samples); note that there may
+  be a size mismatch between n and n_s if the batch is imcomplete.
 - `loss_fn`: a function that computes a scalar loss from two matrices.
+- `num_samples`: n_s, number of input samples.
+- `batch_size`: n, batch size, corresponding to the number of rows preallocated
+  for various matrices; may be larger than `num_samples` for incomplete batches.
 
 Returns (n * d) matrix of gradients.
 """
 function compute_loss_gradient_vectorized!(net_outputs::AbstractMatrix{<:Number},
                                            labels::AbstractMatrix{<:Number},
                                            loss_fn::Function,
-                                           loss_grad_out::AbstractMatrix{<:Number})::AbstractMatrix{<:Number}
-    @assert size(net_outputs) == size(labels)
+                                           num_samples::Integer,
+                                           batch_size::Integer,
+                                           loss_grad_out::AbstractMatrix{<:Number})
+    @assert size(net_outputs, 2) == size(labels, 2)
 
     partial_loss(xs) = loss_fn(labels, xs)
 
-    # dL_dO
-    loss_grad_out .= gradient(partial_loss, net_outputs)[1]
+    # Compute dL_dO.
+    if num_samples == batch_size
+        loss_grad_out .= gradient(partial_loss, net_outputs)[1]
+    else
+        view(loss_grad_out, 1:num_samples, :) .=
+            gradient(partial_loss, view(net_outputs, 1:num_samples, :))[1]
+    end
 end
 
 """
-    run_backward_pass_vectorized!(layer, forward_pass, dL_dO)
+    run_backward_pass_vectorized!(layer, forward_pass, dL_dO, num_samples, batch_size,
+                                  backward_pass_out)
 
 Vectorized backward-pass.
 
+Content of extra rows when `num_samples` < `batch_size` is undefined.
+
 - `dL_dO`: (n * d_out) matrix of gradients.
+- `num_samples`: n_s, number of input samples.
+- `batch_size`: n, batch size, corresponding to the number of rows preallocated
+  for various matrices; may be larger than `num_samples` for incomplete batches.
 """
 function run_backward_pass_vectorized!(layer::Layer,
                                        forward_pass::LayerForwardPassVectorized,
                                        dL_dO::AbstractMatrix{<:Number},
+                                       num_samples::Integer,
+                                       batch_size::Integer,
                                        backward_pass_out::LayerBackwardPassVectorized)
     @assert size(dL_dO, 2) == out_ndims(forward_pass)
-
-    num_samples = size(dL_dO, 1)
 
     # One-liner alternative:
     #
@@ -496,6 +525,7 @@ function run_backward_pass_vectorized!(layer::Layer,
 
     # This loop computes dO_dS but writes it into dL_dS to save an allocation.
     Threads.@threads for j in 1:length(layer.activation_fns)
+        # Skip the last (batch_size - num_samples) rows.
         for i in 1:num_samples
             # forward_pass.sums is (n * d_out).
             backward_pass_out.dL_dS[i,j] = gradient(layer.activation_fns[j],
@@ -520,7 +550,7 @@ function run_backward_pass_vectorized!(layer::Layer,
     # 2/ Vectorized 3D, (n * d_in * d_out)
     #
     # dL_dW = Array{Float64, 3}(undef, (num_samples, # n
-    #                                   size(forward_pass.inputs, 2), # d_in
+    #                                   size(forward_pass.inputs, 2), # d_in+1
     #                                   size(dL_dS, 2))) # d_out
     # for i in 1:num_samples
     #     # Poor cache locality
@@ -531,6 +561,7 @@ function run_backward_pass_vectorized!(layer::Layer,
     # (d_in * d_out)
     fill!(backward_pass_out.dL_dW, 0.0)
     # TODO: Parallelize this with thread-local memory, and combine at end
+    # Skip the last (batch_size - num_samples) rows.
     for i in 1:num_samples
         # dL_dW .+= forward_pass.inputs[i,:] * transpose(dL_dS[i,:])
         BLAS.axpy!(1,
@@ -600,7 +631,6 @@ function train_vectorized!(nn::NeuralNetwork,
         backward_passes[l] = LayerBackwardPassVectorized(dL_dS, dL_dW, dL_dI)
     end
 
-    # TODO: handle batch size mismatches
     # Divide the data into batch_size chunks.
     sample_batches = Iterators.partition(samples, batch_size) |>
         batches -> map(batch -> transpose(hcat(batch...)), batches) |>
@@ -615,22 +645,44 @@ function train_vectorized!(nn::NeuralNetwork,
     loss_grad = zeros(batch_size, out_ndims(nn.layers[end]))
 
     for (index, input_batch) in enumerate(sample_batches)
+        num_samples = size(input_batch, 1)
+
+        # Individual subroutines expect matrices with size batch_size, but
+        # otherwise correctly handle mismatches between num_samples and
+        # batch_size.
+        if (num_samples != batch_size)
+            print("Incomplete batch; $num_samples / $batch_size\n")
+            input_batch = vcat(input_batch,
+                               zeros(batch_size - num_samples,
+                                     size(input_batch, 2)))
+        end
+
         # Run forward-pass.
         for l in 1:num_layers
             run_forward_pass_vectorized!(nn.layers[l],
                                          l == 1 ?
-                                         input_batch :
-                                         forward_passes[l-1].activations,
+                                             input_batch :
+                                             forward_passes[l-1].activations,
+                                         num_samples,
+                                         batch_size,
                                          forward_passes[l])
         end
 
         # Compute loss.
-        loss = nn.loss_fn(forward_passes[num_layers].activations, label_batches[index])
+        # Avoid taking a view unless there isn't a full batch.
+        loss = (num_samples == batch_size) ?
+            nn.loss_fn(forward_passes[num_layers].activations,
+                       label_batches[index]) :
+            nn.loss_fn(
+                view(forward_passes[num_layers].activations,1:num_samples),
+                label_batches[index])
 
         # Backprop.
         compute_loss_gradient_vectorized!(forward_passes[num_layers].activations,
                                           label_batches[index],
                                           nn.loss_fn,
+                                          num_samples,
+                                          batch_size,
                                           loss_grad)
 
         for l in reverse(1:num_layers)
@@ -640,6 +692,8 @@ function train_vectorized!(nn::NeuralNetwork,
                                           loss_grad :
                                           # Chop off the bias column.
                                           backward_passes[l+1].dL_dI[:,1:end-1],
+                                          num_samples,
+                                          batch_size,
                                           backward_passes[l])
         end
 
