@@ -8,6 +8,8 @@ VECTORIZED = false
 batch_size = 32
 learning_rate = 0.2
 epochs = 64000
+# Takes squared error along columns (dimensions), and average along rows
+# (count); applicable to vectors or matrices.
 mse(x,y) = mean(sum((x .- y) .^2, dims=2), dims=1)[1]
 e_approx = float(MathConstants.e)
 sigmoid(x) = (1.0 + MathConstants.e^(-x))^(-1)
