@@ -12,9 +12,10 @@ epochs = 64000
 # (count); applicable to vectors or matrices.
 mse(x,y) = mean(sum((x .- y) .^2, dims=2), dims=1)[1]
 e_approx = float(MathConstants.e)
-sigmoid(x) = (1.0 + MathConstants.e^(-x))^(-1)
+sigmoid_scalar(x) = (1.0 + MathConstants.e^(-x))^(-1)
+sigmoid_vec(x) = sigmoid_scalar.(x)
 
-nn = NeuralNetworks.create_nn([2,1], sigmoid, mse, 2, 1)
+nn = NeuralNetworks.create_nn([2,1], sigmoid_vec, mse, 2, 1)
 
 # Learn XOR
 # [a, b] -> [a XOR b]

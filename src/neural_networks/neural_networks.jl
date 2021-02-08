@@ -20,9 +20,9 @@ struct Layer
     # not show up in dimensionality of the same layer. Thus, the dimensionality
     # of this matrix is (num_prev_outputs + 1) * (num_curr_outputs).
     weights::AbstractMatrix{<:Number}
-    # Each scalar-valued (f: R -> R) activation function corresponds to a single
-    # neuron in this layer.
-    activation_fns::AbstractVector{<:Function}
+    # Vector-valued function (f: R^d -> R^d) mapping the neurons in this layer
+    # to their activations.
+    activation_fn::Function
 end
 
 """
@@ -65,7 +65,7 @@ struct LayerBackwardPass
 end
 
 function Base.show(io::IO, layer::Layer)
-    print("  $(length(layer.activation_fns)) neurons\n")
+    print("  $(size(layer.weights, 2)) neurons\n")
     print("  Weights " *
           "[$(size(layer.weights, 1))x$(size(layer.weights, 2))]: " *
           "$(layer.weights)\n")
@@ -112,20 +112,19 @@ end
 ##
 
 """
-    create_layer(in_ndims_sans_bias, out_ndims, activation_fns)
+    create_layer(in_ndims_sans_bias, out_ndims, activation_fn)
 
 Creates a single layer of a neural network with the given dimensions and
-activation functions, and randomly assigned weights.
+activation function, and randomly assigned weights.
 
 In this package, a "layer" is composed of (1) weights, which are applied to the
 previous layer, and (2) activation functions, which are applied after weights.
 """
 function create_layer(in_ndims_sans_bias::Integer,
                       out_ndims::Integer,
-                      activation_fns::AbstractVector{<:Function})::Layer
-    @assert length(activation_fns) == out_ndims
+                      activation_fn::Function)::Layer
     weights = randn((in_ndims_sans_bias+1, out_ndims))
-    return Layer(weights, activation_fns)
+    return Layer(weights, activation_fn)
 end
 
 """
@@ -178,7 +177,7 @@ Creates a neural network by building layers with the specified dimensionality,
 
 - `layer_dims::AbstractVector`: a vector of integers, where the `n`-th value
 corresponds to the number of neurons in the `n`-th layer of the network.
-- `activation_fn`: the activation function used for all nodes in the network.
+- `activation_fn`: the activation function used for all layers in the network.
 - `loss_fn`: a single loss function applied at the end of a network, producing a
   scalar loss value.
 - `network_input_dims`: the dimensionality of inputs to the network.
@@ -200,7 +199,7 @@ function create_nn(layer_dims::AbstractVector{<:Integer},
                               layer_dims[l-1])
         out_ndims = layer_dims[l]
         layers[l] = create_layer(in_ndims_sans_bias, out_ndims,
-                                 fill(activation_fn, out_ndims))
+                                 activation_fn)
     end
 
     return compose_layers(network_input_ndims, network_output_ndims,
@@ -231,7 +230,7 @@ function run_forward_pass(layer::Layer,
     # each neuron output in this layer.
     sums = transpose(layer.weights) * inputs
     # Apply each neuron's activation function.
-    activations = map.(layer.activation_fns, sums)
+    activations = layer.activation_fn(sums)
 
     return LayerForwardPass(inputs, sums, activations)
 end
@@ -271,8 +270,9 @@ function run_backward_pass(layer::Layer,
 
     # dL_dS|S = dL_dO|O * dO_dS|S
     # dO_dS is just the derivative of the activation function.
-    dO_dS = map(gradient, layer.activation_fns, forward_pass.sums) |>
-        vec -> map(t -> t[1], vec)
+    dO_dS = gradient.(layer.activation_fn, forward_pass.sums) .|>
+        partial -> partial[1]
+
     dL_dS = dL_dO .* dO_dS
     # dL_dW|W = dL_dS|S * dS_dW|W
     # dS_dW for each weight is the value of the output which is scaled by that
@@ -458,7 +458,7 @@ function run_forward_pass_vectorized!(layer::Layer,
     # sums = biased_inputs * layer.weights
     mul!(forward_pass_out.sums, forward_pass_out.inputs, layer.weights)
 
-    # One-liner alternative:
+    # 1/ One-liner alternative for multiple activation functions:
     #
     # activations = mapslices(row -> map.(layer.activation_fns, row), sums, dims=2)
     #
@@ -467,13 +467,20 @@ function run_forward_pass_vectorized!(layer::Layer,
     # vectors of functions and elements.
     # The net result is that the dth function is applied to every element in the
     # dth column.
+    #
+    # 2/ Straightforward, but optimized, version:
+    #
+    # Threads.@threads for j in 1:out_ndims(layer)
+    #     map!(layer.activation_fns[j],
+    #          view(forward_pass_out.activations, 1:num_samples, j),
+    #          view(forward_pass_out.sums, 1:num_samples, j))
+    # end
 
-    Threads.@threads for j in 1:out_ndims(layer)
-        # Skip activation computation for the last (batch_size - num_samples)
-        # rows.
-        map!(layer.activation_fns[j],
-             view(forward_pass_out.activations, 1:num_samples, j),
-             view(forward_pass_out.sums, 1:num_samples, j))
+    # Skip activation computation for the last (batch_size - num_samples) rows.
+    # Poor cache access pattern.
+    Threads.@threads for i in 1:num_samples
+        view(forward_pass_out.activations, i, :) .=
+            layer.activation_fn(view(forward_pass_out.sums, i, :))
     end
 end
 
@@ -534,7 +541,7 @@ function run_backward_pass_vectorized!(layer::Layer,
                                        backward_pass_out::LayerBackwardPassVectorized)
     @assert size(dL_dO, 2) == out_ndims(forward_pass)
 
-    # One-liner alternative:
+    # 1/ One-liner alternative for multiple activation functions:
     #
     # Slice by row, and for each, do element-wise activation function
     # application.
@@ -543,16 +550,25 @@ function run_backward_pass_vectorized!(layer::Layer,
     #                   forward_pass.sums,
     #                   dims=2) |>
     #     vec -> map(t -> t[1], vec)
+    #
+    # 2/ Optimized version:
+    #
+    # Threads.@threads for j in 1:length(layer.activation_fns)
+    #     for i in 1:num_samples
+    #         backward_pass_out.dL_dS[i,j] = gradient(layer.activation_fns[j],
+    #                                                 forward_pass.sums[i,j])[1]
+    #     end
+    # end
 
     # This loop computes dO_dS but writes it into dL_dS to save an allocation.
-    Threads.@threads for j in 1:length(layer.activation_fns)
-        # Skip the last (batch_size - num_samples) rows.
-        for i in 1:num_samples
-            # forward_pass.sums is (n * d_out).
-            backward_pass_out.dL_dS[i,j] = gradient(layer.activation_fns[j],
-                                                    forward_pass.sums[i,j])[1]
-        end
+    # Skip the last (batch_size - num_samples) rows.
+    # Poor cache access pattern.
+    Threads.@threads for i in 1:num_samples
+        view(backward_pass_out.dL_dS, i, :) .=
+            gradient.(layer.activation_fn, view(forward_pass.sums, i, :)) .|>
+            partial -> partial[1]
     end
+
 
     # (n * d_out)
     # dL_dS = dL_dO .* dO_dS
@@ -784,7 +800,6 @@ end
 Returns the number of outputs from `layer`.
 """
 function out_ndims(layer::Layer)
-    @assert size(layer.weights, 2) == length(layer.activation_fns)
     return size(layer.weights, 2)
 end
 
