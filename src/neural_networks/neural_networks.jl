@@ -504,7 +504,9 @@ function run_forward_pass_vectorized!(layer::Layer,
 end
 
 """
-    compute_loss_gradient_vectorized!(net_outputs, labels, loss_fn)
+    compute_loss_gradient_vectorized!(net_outputs, labels, loss_fn,
+                                      num_samples, batch_size,
+                                      loss_grad_out)
 
 Vectorized gradient computation.
 
@@ -512,13 +514,17 @@ Content of extra rows when n_s < n is undefined.
 
 - `net_outputs`: (n * d) matrix of output predictions (rows are samples).
 - `labels`: (n_s * d) matrix of labels (rows are samples); note that there may
-  be a size mismatch between n and n_s if the batch is imcomplete.
+  be a size mismatch between n and n_s if the batch is incomplete.
 - `loss_fn`: a function that computes a scalar loss from two matrices.
 - `num_samples`: n_s, number of input samples.
 - `batch_size`: n, batch size, corresponding to the number of rows preallocated
   for various matrices; may be larger than `num_samples` for incomplete batches.
 
 Returns (n * d) matrix of gradients.
+
+This function may return a different (scaled) result compared to
+`compute_loss_gradient`. When the values disagree, the non-vectorized version
+should be treated as the reference implementation.
 """
 function compute_loss_gradient_vectorized!(net_outputs::AbstractMatrix{<:Number},
                                            labels::AbstractMatrix{<:Number},

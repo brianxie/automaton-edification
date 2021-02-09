@@ -92,10 +92,10 @@ layer_1 = NeuralNetworks.create_layer(784, 200, relu)
 layer_2 = NeuralNetworks.create_layer(200, 10, softmax)
 nn = NeuralNetworks.compose_layers(784, 10, cross_entropy, layer_1, layer_2)
 
-VECTORIZED = false
+VECTORIZED = true
 
 learning_rate = 0.03
-batch_size = 10
+batch_size = 20
 
 @time begin
     stats = VECTORIZED ?
@@ -105,8 +105,8 @@ batch_size = 10
                                         learning_rate,
                                         batch_size) :
         NeuralNetworks.train!(nn,
-                            processed_training_samples,
-                            processed_training_labels,
-                            learning_rate,
-                            batch_size)
+                              processed_training_samples,
+                              processed_training_labels,
+                              learning_rate,
+                              batch_size)
 end # @time
