@@ -38,6 +38,9 @@ using CodecZlib
 TRAINING_SAMPLES_PATH = "datasets/mnist/train-images-idx3-ubyte.gz"
 TRAINING_LABELS_PATH = "datasets/mnist/train-labels-idx1-ubyte.gz"
 
+TEST_SAMPLES_PATH = "datasets/mnist/t10k-images-idx3-ubyte.gz"
+TEST_LABELS_PATH = "datasets/mnist/t10k-labels-idx1-ubyte.gz"
+
 """
     read_file_from_index(filename; sample_index, num_samples)
 

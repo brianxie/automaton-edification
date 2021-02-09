@@ -2,7 +2,7 @@ module NeuralNetworks
 
 # TODO: Add exports
 
-using LinearAlgebra, Zygote
+using LinearAlgebra, Zygote, ForwardDiff
 
 ##
 ## Data types
@@ -123,7 +123,7 @@ previous layer, and (2) activation functions, which are applied after weights.
 function create_layer(in_ndims_sans_bias::Integer,
                       out_ndims::Integer,
                       activation_fn::Function)::Layer
-    weights = randn((in_ndims_sans_bias+1, out_ndims))
+    weights = randn((in_ndims_sans_bias+1, out_ndims)) ./ sqrt(in_ndims_sans_bias)
     return Layer(weights, activation_fn)
 end
 
@@ -223,13 +223,16 @@ function run_forward_pass(layer::Layer,
     # Append the bias term.
     inputs = copy(inputs)
     push!(inputs, 1)
+
     # Perform matrix multiplication `weights`^T * `input`.
     # For the `weights` matrix, the rows index the inputs and the columns index
     # the outputs. `weights` is transposed before multiplication so that the
     # rows index outputs, and the result is a column vector with an entry for
     # each neuron output in this layer.
     sums = transpose(layer.weights) * inputs
-    # Apply each neuron's activation function.
+
+    # Apply each neuron's activation function. The activation function is
+    # vector-valued, so the result is a vector of the same dimensionality.
     activations = layer.activation_fn(sums)
 
     return LayerForwardPass(inputs, sums, activations)
@@ -242,13 +245,15 @@ Computes the gradient of `loss_fn` parameterized by `label`, with respect to
 `net_output`, evaluated at `net_output`.
 
 - `loss_fn`: a function f: (R^n * R^n) -> R
+
+Returns a vector with the size of the output layer.
 """
 function compute_loss_gradient(net_output::AbstractVector{<:Number},
                                label::AbstractVector{<:Number},
                                loss_fn::Function)::AbstractVector{<:Number}
     @assert length(net_output) == length(label)
     
-    partial_loss(x) = loss_fn(label, x)
+    partial_loss(x) = loss_fn(x, label)
     dL_dO = gradient(partial_loss, net_output)[1]
 
     return dL_dO
@@ -269,19 +274,27 @@ function run_backward_pass(layer::Layer,
     @assert length(dL_dO) == out_ndims(forward_pass)
 
     # dL_dS|S = dL_dO|O * dO_dS|S
-    # dO_dS is just the derivative of the activation function.
-    dO_dS = gradient.(layer.activation_fn, forward_pass.sums) .|>
-        partial -> partial[1]
+    # dO_dS is just the derivative (Jacobian) of the activation function.
+    # (d_out * d_out)
+    dO_dS = ForwardDiff.jacobian(layer.activation_fn, forward_pass.sums)
 
-    dL_dS = dL_dO .* dO_dS
+    # dL_dS = dL_dO * dO_dS
+    # For activation functions which are elementwise-only, this is actually
+    # equivalent to a vector-vector Hadamard product, because the Jacobian is
+    # diagonal.
+    # (d_out)
+    dL_dS = transpose(dO_dS) * dL_dO
+
     # dL_dW|W = dL_dS|S * dS_dW|W
     # dS_dW for each weight is the value of the output which is scaled by that
     # weight.
+    # (d_in+1 * d_out)
     dL_dW = forward_pass.inputs * transpose(dL_dS)
 
     # dL_dI|I = sum(dL_dS|S * dS_dI|I)
     # dS_dI is just the applied weight; the matrix multiplication applies the
     # vectorized sum.
+    # (d_in+1)
     dL_dI = layer.weights * dL_dS
 
     # Note that the last element in dL_dW corresponds to bias, and so should be
@@ -420,6 +433,12 @@ end
 Vectorized backward-pass data structure.
 """
 struct LayerBackwardPassVectorized
+    # Allocate space for the Jacobian of the activation function. The partial
+    # derivatives can't be hard-coded since activation functions may vary, and
+    # each sample requires a (d * d) matrix, since the activation function can
+    # map a vector to a vector.
+    # (n * d_out * d_out)
+    dO_dS::AbstractArray{<:Number, 3}
     # (n * d_out)
     dL_dS::AbstractMatrix{<:Number}
     # Since only the total gradient update is needed, the n-dimension is collapsed.
@@ -454,8 +473,8 @@ function run_forward_pass_vectorized!(layer::Layer,
     # Append the bias column (extra dimension for each sample).
     forward_pass_out.inputs .= [inputs ones(batch_size,1)]
 
-    # (n * d_in+1) * (d_in+1 * d_out)
     # sums = biased_inputs * layer.weights
+    # (n * d_in+1) * (d_in+1 * d_out)
     mul!(forward_pass_out.sums, forward_pass_out.inputs, layer.weights)
 
     # 1/ One-liner alternative for multiple activation functions:
@@ -509,7 +528,7 @@ function compute_loss_gradient_vectorized!(net_outputs::AbstractMatrix{<:Number}
                                            loss_grad_out::AbstractMatrix{<:Number})
     @assert size(net_outputs, 2) == size(labels, 2)
 
-    partial_loss(xs) = loss_fn(labels, xs)
+    partial_loss(xs) = loss_fn(xs, labels)
 
     # Compute dL_dO.
     if num_samples == batch_size
@@ -560,19 +579,23 @@ function run_backward_pass_vectorized!(layer::Layer,
     #     end
     # end
 
-    # This loop computes dO_dS but writes it into dL_dS to save an allocation.
     # Skip the last (batch_size - num_samples) rows.
     # Poor cache access pattern.
+    # (n * d_out * d_out)
     Threads.@threads for i in 1:num_samples
-        view(backward_pass_out.dL_dS, i, :) .=
-            gradient.(layer.activation_fn, view(forward_pass.sums, i, :)) .|>
-            partial -> partial[1]
+        ForwardDiff.jacobian!(view(backward_pass_out.dO_dS, i, :, :),
+                              layer.activation_fn,
+                              view(forward_pass.sums, i, :))
     end
 
-
+    # dL_dS = dL_dO * dO_dS
     # (n * d_out)
-    # dL_dS = dL_dO .* dO_dS
-    backward_pass_out.dL_dS .*= dL_dO
+    # Poor cache access pattern.
+    Threads.@threads for i in 1:num_samples
+        mul!(view(backward_pass_out.dL_dS, i, :),
+             transpose(view(backward_pass_out.dO_dS, i, :, :)),
+             view(dL_dO, i, :))
+    end
 
     # 1/ One-liner for 3D solution (keep each sample, (n * d_in+1 * d_out))
     # Slice by row (each row is a (d_in+1 * d_out) matrix!), and for each
@@ -675,11 +698,12 @@ function train_vectorized!(nn::NeuralNetwork,
 
     backward_passes = Vector{LayerBackwardPassVectorized}(undef, num_layers)
     for l in 1:num_layers
+        dO_dS = zeros(batch_size, out_ndims(nn.layers[l]), out_ndims(nn.layers[l]))
         dL_dS = zeros(batch_size, out_ndims(nn.layers[l]))
         dL_dW = zeros(in_ndims_with_bias(nn.layers[l]),
                       out_ndims(nn.layers[l]))
         dL_dI = zeros(batch_size, in_ndims_with_bias(nn.layers[l]))
-        backward_passes[l] = LayerBackwardPassVectorized(dL_dS, dL_dW, dL_dI)
+        backward_passes[l] = LayerBackwardPassVectorized(dO_dS, dL_dS, dL_dW, dL_dI)
     end
 
     loss_grad = zeros(batch_size, out_ndims(nn.layers[end]))
