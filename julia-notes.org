@@ -1,3 +1,0 @@
-** Column-major instead of row-major ordering
-** Explicit broadcasting
-** Local environments
