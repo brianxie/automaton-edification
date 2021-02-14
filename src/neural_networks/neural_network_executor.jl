@@ -1,6 +1,7 @@
 include("neural_networks.jl")
+include("../optimization/loss_functions.jl")
 
-using Statistics, LinearAlgebra, Random, Plots
+using LinearAlgebra, Random, Plots
 
 VECTORIZED = false
 
@@ -8,13 +9,10 @@ VECTORIZED = false
 batch_size = 32
 learning_rate = 0.2
 epochs = 96000
-# Takes squared error along columns (dimensions), and average along rows
-# (count); applicable to vectors or matrices.
-mse(x,y) = mean(sum((x .- y) .^2, dims=2), dims=1)[1]
 sigmoid_scalar(x) = (1.0 + exp(-x))^(-1)
 sigmoid_vec(x) = sigmoid_scalar.(x)
 
-nn = NeuralNetworks.create_nn([2,1], sigmoid_vec, mse, 2, 1)
+nn = NeuralNetworks.create_nn([2,1], sigmoid_vec, LossFunctions.mse, 2, 1)
 
 # Learn XOR
 # [a, b] -> [a XOR b]

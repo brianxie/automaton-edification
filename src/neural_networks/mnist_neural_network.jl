@@ -1,5 +1,6 @@
 include("../datasets/mnist.jl")
 include("neural_networks.jl")
+include("../optimization/loss_functions.jl")
 
 using Random, Statistics
 
@@ -83,14 +84,14 @@ end
 
 relu(x) = max.(0.0,x)
 softmax(x) = exp.(x .- maximum(x)) .* sum(exp.(x .- maximum(x)))^(-1)
-cross_entropy(x,y) = mean((-1)*sum(y .* log.(x), dims=2), dims=1)[1]
 
 processed_training_samples, processed_training_labels =
     get_epoch(training_samples, training_labels)
 
 layer_1 = NeuralNetworks.create_layer(784, 200, relu)
 layer_2 = NeuralNetworks.create_layer(200, 10, softmax)
-nn = NeuralNetworks.compose_layers(784, 10, cross_entropy, layer_1, layer_2)
+nn = NeuralNetworks.compose_layers(784, 10, LossFunctions.cross_entropy,
+                                   layer_1, layer_2)
 
 VECTORIZED = true
 
@@ -100,10 +101,10 @@ batch_size = 20
 @time begin
     stats = VECTORIZED ?
         NeuralNetworks.train_vectorized!(nn,
-                                        processed_training_samples,
-                                        processed_training_labels,
-                                        learning_rate,
-                                        batch_size) :
+                                         processed_training_samples,
+                                         processed_training_labels,
+                                         learning_rate,
+                                         batch_size) :
         NeuralNetworks.train!(nn,
                               processed_training_samples,
                               processed_training_labels,
