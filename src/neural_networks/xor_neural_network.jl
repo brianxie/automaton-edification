@@ -1,4 +1,5 @@
 include("neural_networks.jl")
+include("activation_functions.jl")
 include("../optimization/loss_functions.jl")
 
 using LinearAlgebra, Random, Plots
@@ -9,10 +10,8 @@ VECTORIZED = false
 batch_size = 32
 learning_rate = 0.2
 epochs = 96000
-sigmoid_scalar(x) = (1.0 + exp(-x))^(-1)
-sigmoid_vec(x) = sigmoid_scalar.(x)
 
-nn = NeuralNetworks.create_nn([2,1], sigmoid_vec, LossFunctions.mse, 2, 1)
+nn = NeuralNetworks.create_nn([2,1], ActivationFunctions.sigmoid, LossFunctions.mse, 2, 1)
 
 # Learn XOR
 # [a, b] -> [a XOR b]

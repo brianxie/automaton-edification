@@ -1,5 +1,6 @@
 include("../datasets/mnist.jl")
 include("neural_networks.jl")
+include("activation_functions.jl")
 include("../optimization/loss_functions.jl")
 
 using Random, Statistics
@@ -82,14 +83,11 @@ function check_test_accuracy(nn::NeuralNetworks.NeuralNetwork)
     check_accuracy(nn, processed_test_samples, processed_test_labels)
 end
 
-relu(x) = max.(0.0,x)
-softmax(x) = exp.(x .- maximum(x)) .* sum(exp.(x .- maximum(x)))^(-1)
-
 processed_training_samples, processed_training_labels =
     get_epoch(training_samples, training_labels)
 
-layer_1 = NeuralNetworks.create_layer(784, 200, relu)
-layer_2 = NeuralNetworks.create_layer(200, 10, softmax)
+layer_1 = NeuralNetworks.create_layer(784, 200, ActivationFunctions.relu)
+layer_2 = NeuralNetworks.create_layer(200, 10, ActivationFunctions.softmax)
 nn = NeuralNetworks.compose_layers(784, 10, LossFunctions.cross_entropy,
                                    layer_1, layer_2)
 
