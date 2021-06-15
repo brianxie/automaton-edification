@@ -1,3 +1,0 @@
-module AutomatonEdification
-
-end # module

@@ -33,6 +33,8 @@ changes the fastest.
 
 module MNIST
 
+export read_file_from_index
+
 using CodecZlib
 
 TRAINING_SAMPLES_PATH = "datasets/mnist/train-images-idx3-ubyte.gz"

@@ -6,18 +6,19 @@ Code is written in Julia.
 
 ** Bootstrapping the environment
 
-To install all declared dependencies:
+To install and update all declared dependencies:
 
 #+begin_src
 julia> ]
 (@v<version>) pkg> activate .
-(automaton-edification) pkg> instantiate
+(AutomatonEdification) pkg> instantiate
+(AutomatonEdification) pkg> update
 #+end_src
 
 To add additional packages as dependencies:
 
 #+begin_src
-(automaton-edification) pkg> add <package-name>
+(AutomatonEdification) pkg> add <package-name>
 #+end_src
 
 ** Working in the REPL
@@ -34,4 +35,23 @@ To load a Julia script in the REPL:
 
 #+begin_src
 julia> include("<filename.jl>")
+#+end_src
+
+** Running executable and tests
+
+All library files are included from the main package file,
+=src/AutomatonEdification.jl=. Available executables are also listed in that
+file as comments.
+
+To run an executable, load the file from the project REPL:
+
+#+begin_src
+julia> include("<path_to_executable.jl>")
+#+end_src
+
+To run tests, use the =test= command from the =pkg= tool in the project root:
+
+#+begin_src
+julia> ]
+(AutomatonEdification) pkg> test
 #+end_src

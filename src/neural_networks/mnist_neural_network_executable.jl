@@ -1,9 +1,7 @@
-include("../datasets/mnist.jl")
-include("neural_networks.jl")
-include("activation_functions.jl")
-include("../optimization/loss_functions.jl")
+# Executable
 
 using Random, Statistics
+using AutomatonEdification.MNIST, AutomatonEdification.NeuralNetworks, AutomatonEdification.ActivationFunctions, AutomatonEdification.LossFunctions
 
 training_samples = MNIST.read_file_from_index(MNIST.TRAINING_SAMPLES_PATH) .|> vec
 training_labels = MNIST.read_file_from_index(MNIST.TRAINING_LABELS_PATH) .|> vec

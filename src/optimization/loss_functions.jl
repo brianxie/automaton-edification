@@ -1,5 +1,7 @@
 module LossFunctions
 
+export mse, cross_entropy
+
 using Statistics
 
 """

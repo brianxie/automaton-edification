@@ -1,8 +1,7 @@
-include("../clusters.jl")
-include("linear_classifiers.jl")
-include("centroid_linear_classifier_impl.jl")
+# Executable
 
 using CSV, DataFrames, Plots
+using AutomatonEdification.Clusters, AutomatonEdification.CentroidLinearClassifierImpl, AutomatonEdification.LinearClassifiers
 
 SYN_CENTER_RADIUS = 20
 SYN_CENTER_PERTURB_RADIUS = 10.0
@@ -28,9 +27,9 @@ function write_clusters_to_csv(ndims::Integer,
                                                SYN_CENTER_PERTURB_RADIUS,
                                                num_negative_points)
 
-    CSV.write("positive_data.csv", DataFrame(positive_cluster),
+    CSV.write("positive_data.csv", DataFrame(positive_cluster, :auto),
               writeheader=false)
-    CSV.write("negative_data.csv", DataFrame(negative_cluster),
+    CSV.write("negative_data.csv", DataFrame(negative_cluster, :auto),
               writeheader=false)
 
     return positive_center, negative_center

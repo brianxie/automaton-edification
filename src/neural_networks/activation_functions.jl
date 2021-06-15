@@ -1,5 +1,7 @@
 module ActivationFunctions
 
+export sigmoid, relu, softmax
+
 """
     sigmoid(x)
 

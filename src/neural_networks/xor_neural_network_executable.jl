@@ -1,8 +1,7 @@
-include("neural_networks.jl")
-include("activation_functions.jl")
-include("../optimization/loss_functions.jl")
+# Executable
 
 using LinearAlgebra, Random, Plots
+using AutomatonEdification.NeuralNetworks, AutomatonEdification.ActivationFunctions, AutomatonEdification.LossFunctions
 
 VECTORIZED = false
 
